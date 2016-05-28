@@ -35,6 +35,7 @@
 static char ime_str[3][8] = {"OFF", "ON", "SWYPE"};
 static char incoming_call_str[7][15] = {"IDLE", "RINGING", "OFFHOOK", "CDMA_RINGING", "CDMA_OFFHOOK", "LTE_RINGING", "LTE_OFFHOOK"};
 static char mfts_str[5][8] = {"NONE", "FOLDER", "FLAT", "CURVED", "DS_FLAT"};
+static int lpwg_status = 0;
 
 int ignore_compared_event = 0;
 extern void touch_sub_control_irq(int on_off);
@@ -174,6 +175,11 @@ static ssize_t store_lpwg_data(struct device *dev,
 	return count;
 }
 
+static ssize_t show_lpwg_notify(struct device *dev, char *buf)
+{
+	return sprintf(buf, "%d\n", lpwg_status);
+}
+
 static ssize_t store_lpwg_notify(struct device *dev,
 		const char *buf, size_t count)
 {
@@ -226,6 +232,7 @@ static ssize_t store_lpwg_notify(struct device *dev,
 	if (ts->driver->lpwg) {
 		mutex_lock(&ts->lock);
 		ts->driver->lpwg(ts->dev, code, param);
+		lpwg_status = (param[0]) ? 1 : 0;
 		mutex_unlock(&ts->lock);
 
 		if (plist != NULL) {
@@ -1695,7 +1702,7 @@ static ssize_t store_encryption_coordi(struct device *dev,
 static TOUCH_ATTR(platform_data, show_platform_data, NULL);
 static TOUCH_ATTR(fw_upgrade, show_upgrade, store_upgrade);
 static TOUCH_ATTR(lpwg_data, show_lpwg_data, store_lpwg_data);
-static TOUCH_ATTR(lpwg_notify, NULL, store_lpwg_notify);
+static TOUCH_ATTR(lpwg_notify, show_lpwg_notify, store_lpwg_notify);
 static TOUCH_ATTR(tap2wake, NULL, store_tap2wake);
 static TOUCH_ATTR(keyguard,
 	show_lockscreen_state, store_lockscreen_state);
