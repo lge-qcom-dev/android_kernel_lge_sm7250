@@ -1974,8 +1974,7 @@ static int ft8756_upgrade(struct device *dev)
 	boot_mode = touch_check_boot_mode(dev);
 
 	if ((boot_mode == TOUCH_CHARGER_MODE)
-			|| (boot_mode == TOUCH_LAF_MODE)
-			|| (boot_mode == TOUCH_RECOVERY_MODE)) {
+			|| (boot_mode == TOUCH_LAF_MODE)) {
 		TOUCH_I("%s: boot_mode = %d(CHARGER:5/LAF:6/RECOVER_MODE:7)\n", __func__, boot_mode);
 		return -EPERM;
 	}

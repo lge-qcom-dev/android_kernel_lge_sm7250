@@ -2993,8 +2993,7 @@ static int sw42902_probe(struct device *dev)
 			PM_QOS_DEFAULT_VALUE);
 
 	if (boot_mode == TOUCH_CHARGER_MODE
-			|| boot_mode == TOUCH_LAF_MODE
-			|| boot_mode == TOUCH_RECOVERY_MODE) {
+			|| boot_mode == TOUCH_LAF_MODE) {
 		if (is_ddic_name(0,"sw43103_wing")) {
 			TOUCH_I("%s: boot_mode = %d Power on(only wing BOB sample)\n", __func__, boot_mode);
 			sw42902_power(dev, POWER_ON_ETC);
@@ -4251,6 +4250,7 @@ static int sw42902_suspend(struct device *dev)
 	switch (boot_mode) {
 	case TOUCH_NORMAL_BOOT:
 	case TOUCH_MINIOS_AAT:
+	case TOUCH_RECOVERY_MODE:
 		break;
 	case TOUCH_MINIOS_MFTS_FOLDER:
 	case TOUCH_MINIOS_MFTS_FLAT:
@@ -4265,7 +4265,6 @@ static int sw42902_suspend(struct device *dev)
 		break;
 	case TOUCH_CHARGER_MODE:
 	case TOUCH_LAF_MODE:
-	case TOUCH_RECOVERY_MODE:
 		TOUCH_I("%s: Etc boot_mode(%d)!!!\n", __func__, boot_mode);
 		return -EPERM;
 	default:
@@ -4323,6 +4322,7 @@ static int sw42902_resume(struct device *dev)
 	switch (boot_mode) {
 	case TOUCH_NORMAL_BOOT:
 	case TOUCH_MINIOS_AAT:
+	case TOUCH_RECOVERY_MODE:
 		break;
 	case TOUCH_MINIOS_MFTS_FOLDER:
 	case TOUCH_MINIOS_MFTS_FLAT:
@@ -4355,7 +4355,6 @@ static int sw42902_resume(struct device *dev)
 		break;
 	case TOUCH_CHARGER_MODE:
 	case TOUCH_LAF_MODE:
-	case TOUCH_RECOVERY_MODE:
 		TOUCH_I("%s: Etc boot_mode(%d)!!!\n", __func__, boot_mode);
 		sw42902_sleep_ctrl(dev, IC_DEEP_SLEEP);
 		return -EPERM;
