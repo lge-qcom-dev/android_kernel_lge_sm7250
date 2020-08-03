@@ -136,18 +136,7 @@ static void touch_report_event(struct touch_core_data *ts)
 					ts->tdata[i].orientation);
 
 			if (press_mask & (1 << i)) {
-				if (hide_lockscreen_coord) {
-					TOUCH_I("%d finger pressed:<%d>(xxxx,xxxx,xxxx)\n",
-							ts->tcount, i);
-				} else {
-					if (!ts->role.encryption_coordi) {
-						TOUCH_I("%d finger pressed:<%d>(%4d,%4d,%4d)\n",
-								ts->tcount,
-								i,
-								ts->tdata[i].x,
-								ts->tdata[i].y,
-								ts->tdata[i].pressure);
-					}
+				if (!hide_lockscreen_coord) {
 #if defined(CONFIG_LGE_TOUCH_ENCRYPTION)
 					encryption_coordinate(ts, i, PRESSED);
 #endif
@@ -156,17 +145,7 @@ static void touch_report_event(struct touch_core_data *ts)
 		} else if (release_mask & (1 << i)) {
 			input_mt_slot(ts->input, i);
 			input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, false);
-			if (hide_lockscreen_coord) {
-				TOUCH_I(" finger released:<%d>(xxxx,xxxx,xxxx)\n",
-						i);
-			} else {
-				if (!ts->role.encryption_coordi) {
-					TOUCH_I(" finger released:<%d>(%4d,%4d,%4d)\n",
-							i,
-							ts->tdata[i].x,
-							ts->tdata[i].y,
-							ts->tdata[i].pressure);
-				}
+			if (!hide_lockscreen_coord) {
 #if defined(CONFIG_LGE_TOUCH_ENCRYPTION)
 				encryption_coordinate(ts, i, RELEASED);
 #endif
