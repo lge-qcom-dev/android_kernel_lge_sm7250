@@ -350,6 +350,7 @@ static void ft8756_get_swipe_info(struct device *dev)
 
 	TOUCH_TRACE();
 
+	ts->swipe[SWIPE_L2].available = true;
 	ts->swipe[SWIPE_L2].enable = false; // true modify for test
 	ts->swipe[SWIPE_L2].distance = 12;
 	ts->swipe[SWIPE_L2].ratio_thres = 150;
@@ -367,6 +368,7 @@ static void ft8756_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_L2].start_area.x2 = (ts->caps.max_x);
 	ts->swipe[SWIPE_L2].start_area.y2 = 1105;
 
+	ts->swipe[SWIPE_R2].available = true;
 	ts->swipe[SWIPE_R2].enable = false;
 	ts->swipe[SWIPE_R2].distance = 12;
 	ts->swipe[SWIPE_R2].ratio_thres = 150;
@@ -384,6 +386,7 @@ static void ft8756_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_R2].start_area.x2 = (int)(mm_to_point * 10);					// spec 10mm
 	ts->swipe[SWIPE_R2].start_area.y2 = 1105;
 
+	ts->swipe[SWIPE_U].available = true;
 	ts->swipe[SWIPE_U].enable = false;
 	ts->swipe[SWIPE_U].distance = 20;
 	ts->swipe[SWIPE_U].ratio_thres = 150;
@@ -401,6 +404,7 @@ static void ft8756_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_U].start_area.x2 = (ts->caps.max_x / 2) + (int)(mm_to_point * 12.5);		// spec start_area_width 25mm
 	ts->swipe[SWIPE_U].start_area.y2 = ts->swipe[SWIPE_U].area.y2;
 
+	ts->swipe[SWIPE_D].available = true;
 	ts->swipe[SWIPE_D].enable = false;
 	ts->swipe[SWIPE_D].distance = 15;
 	ts->swipe[SWIPE_D].ratio_thres = 150;
@@ -428,6 +432,8 @@ static void ft8756_get_swipe_info(struct device *dev)
 	d->start_pay_area_R2.y1 = ts->swipe[SWIPE_R2].start_area.y1;
 	d->start_pay_area_R2.y2 = ts->swipe[SWIPE_R2].start_area.y2;
 
+	ts->swipe[SWIPE_L].available = false;
+	ts->swipe[SWIPE_R].available = true;
 }
 
 static struct ft8756_ic_info *ext_ic_info;

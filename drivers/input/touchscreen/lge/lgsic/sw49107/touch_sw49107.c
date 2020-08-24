@@ -471,6 +471,7 @@ static void sw49107_get_swipe_info(struct device *dev)
 	struct touch_core_data *ts = to_touch_core(dev);
 	int mm_to_point = 15; // 1 mm -> about X point
 
+	ts->swipe[SWIPE_L].available = true;
 	ts->swipe[SWIPE_L].enable = false;
 	ts->swipe[SWIPE_L].distance = 7;
 	ts->swipe[SWIPE_L].ratio_thres = 100;
@@ -488,6 +489,7 @@ static void sw49107_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_L].start_area.x2 = (ts->caps.max_x);
 	ts->swipe[SWIPE_L].start_area.y2 = 1655;
 
+	ts->swipe[SWIPE_R].available = true;
 	ts->swipe[SWIPE_R].enable = false;
 	ts->swipe[SWIPE_R].distance = 7;
 	ts->swipe[SWIPE_R].ratio_thres = 100;
@@ -505,6 +507,7 @@ static void sw49107_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_R].start_area.x2 = (mm_to_point * 4);
 	ts->swipe[SWIPE_R].start_area.y2 = 1655;
 
+	ts->swipe[SWIPE_U].available = true;
 	ts->swipe[SWIPE_U].enable = false;
 	ts->swipe[SWIPE_U].distance = 20;
 	ts->swipe[SWIPE_U].ratio_thres = 150;
@@ -522,6 +525,7 @@ static void sw49107_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_U].start_area.x2 = (ts->caps.max_x / 2) + (int)(mm_to_point * 12.5);	// spec start_area_width 25mm
 	ts->swipe[SWIPE_U].start_area.y2 = ts->swipe[SWIPE_U].area.y2;
 
+	ts->swipe[SWIPE_D].available = true;
 	ts->swipe[SWIPE_D].enable = false;
 	ts->swipe[SWIPE_D].distance = 15;
 	ts->swipe[SWIPE_D].ratio_thres = 150;
@@ -539,6 +543,8 @@ static void sw49107_get_swipe_info(struct device *dev)
 	ts->swipe[SWIPE_D].start_area.x2 = ts->caps.max_x - (mm_to_point * 4);			// spec 4mm
 	ts->swipe[SWIPE_D].start_area.y2 = 200;
 
+	ts->swipe[SWIPE_L2].available = false;
+	ts->swipe[SWIPE_R2].available = false;
 }
 
 int sw49107_ic_info(struct device *dev)
