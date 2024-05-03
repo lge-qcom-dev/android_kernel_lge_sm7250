@@ -125,6 +125,9 @@ struct qpnp_qg {
 	struct power_supply	*dc_psy;
 	struct power_supply	*parallel_psy;
 	struct power_supply	*cp_psy;
+#ifdef CONFIG_USE_WIRELESS_CHARGING
+	struct power_supply	*wireless_psy;
+#endif
 	struct qg_esr_data	esr_data[QG_MAX_ESR_COUNT];
 
 	/* status variable */
@@ -182,7 +185,9 @@ struct qpnp_qg {
 	unsigned long		suspend_time;
 	struct iio_channel	*batt_therm_chan;
 	struct iio_channel	*batt_id_chan;
-
+#ifdef CONFIG_LGE_PM
+	bool		in_esr_process;
+#endif
 	/* soc params */
 	int			catch_up_soc;
 	int			maint_soc;
@@ -195,6 +200,7 @@ struct qpnp_qg {
 	int			last_adj_ssoc;
 	int			recharge_soc;
 	int			batt_age_level;
+	int			ibat;
 	struct alarm		alarm_timer;
 	u32			sdam_data[SDAM_MAX];
 
@@ -273,4 +279,9 @@ enum qg_mode {
 	QG_V_MODE,
 };
 
+#ifdef CONFIG_LGE_PM
+int extension_qg_load_dt(void);
+int extension_qg_load_icoeff_dt(struct qpnp_qg *qg);
+int lge_get_ui_soc(struct qpnp_qg *qg, int msoc_raw);
+#endif
 #endif /* __QG_CORE_H__ */

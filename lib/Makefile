@@ -65,6 +65,9 @@ obj-$(CONFIG_TEST_HASH) += test_hash.o test_siphash.o
 obj-$(CONFIG_TEST_IDA) += test_ida.o
 obj-$(CONFIG_TEST_KASAN) += test_kasan.o
 CFLAGS_test_kasan.o += -fno-builtin
+ifeq ($(cc-name),clang)
+CFLAGS_test_kasan.o += -Wno-vla
+endif
 obj-$(CONFIG_TEST_UBSAN) += test_ubsan.o
 UBSAN_SANITIZE_test_ubsan.o := y
 obj-$(CONFIG_TEST_KSTRTOX) += test-kstrtox.o

@@ -11,6 +11,17 @@
 #include "dp_usbpd.h"
 #include "dp_debug.h"
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_NOT_SUPPORT_DISPLAYPORT)
+#include "../lge/dp/lge_dp.h"
+#endif
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_NOT_SUPPORT_DISPLAYPORT)
+struct dp_noti_dev dpdev = {
+	.name = "dp_notify",
+	.state = 0,
+};
+#endif
+
 /* DP specific VDM commands */
 #define DP_USBPD_VDM_STATUS	0x10
 #define DP_USBPD_VDM_CONFIGURE	0x11
@@ -246,9 +257,14 @@ static void dp_usbpd_connect_cb(struct usbpd_svid_handler *hdlr,
 		return;
 	}
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_NOT_SUPPORT_DISPLAYPORT)
+	dp_noti_set_state(&dpdev, 1);
+	return;
+#else
 	DP_DEBUG("peer_usb_comm: %d\n", peer_usb_comm);
 	pd->dp_usbpd.base.peer_usb_comm = peer_usb_comm;
 	dp_usbpd_send_event(pd, DP_USBPD_EVT_DISCOVER);
+#endif
 }
 
 static void dp_usbpd_disconnect_cb(struct usbpd_svid_handler *hdlr)
@@ -261,12 +277,17 @@ static void dp_usbpd_disconnect_cb(struct usbpd_svid_handler *hdlr)
 		return;
 	}
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_NOT_SUPPORT_DISPLAYPORT)
+	dp_noti_set_state(&dpdev, 0);
+	return;
+#else
 	pd->alt_mode = DP_USBPD_ALT_MODE_NONE;
 	pd->dp_usbpd.base.alt_mode_cfg_done = false;
 	DP_DEBUG("\n");
 
 	if (pd->dp_cb && pd->dp_cb->disconnect)
 		pd->dp_cb->disconnect(pd->dev);
+#endif
 }
 
 static int dp_usbpd_validate_callback(u8 cmd,
@@ -349,7 +370,7 @@ static void dp_usbpd_response_cb(struct usbpd_svid_handler *hdlr, u8 cmd,
 
 	pd = container_of(hdlr, struct dp_usbpd_private, svid_handler);
 
-	DP_DEBUG("callback -> cmd: %s, *vdos = 0x%x, num_vdos = %d\n",
+	DP_INFO("callback -> cmd: %s, *vdos = 0x%x, num_vdos = %d\n",
 				dp_usbpd_cmd_name(cmd), *vdos, num_vdos);
 
 	if (dp_usbpd_validate_callback(cmd, cmd_type, num_vdos)) {
@@ -496,6 +517,10 @@ int dp_usbpd_register(struct dp_hpd *dp_hpd)
 	if (rc)
 		DP_ERR("pd registration failed\n");
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_NOT_SUPPORT_DISPLAYPORT)
+	dp_noti_register(&dpdev);
+#endif
+
 	return rc;
 }
 
@@ -579,4 +604,8 @@ void dp_usbpd_put(struct dp_hpd *dp_hpd)
 	usbpd_unregister_svid(usbpd->pd, &usbpd->svid_handler);
 
 	devm_kfree(usbpd->dev, usbpd);
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_NOT_SUPPORT_DISPLAYPORT)
+	dp_noti_unregister(&dpdev);
+#endif
 }

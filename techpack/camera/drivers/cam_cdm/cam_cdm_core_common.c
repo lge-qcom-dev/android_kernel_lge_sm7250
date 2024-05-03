@@ -201,7 +201,7 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 
 	for (i = 0; i < CAM_PER_CDM_MAX_REGISTERED_CLIENTS; i++) {
 		if (core->clients[i] != NULL) {
-			mutex_lock(&cdm_hw->hw_mutex);
+			//mutex_lock(&cdm_hw->hw_mutex); //LGE_CHANGE, for recovery
 			client = core->clients[i];
 			mutex_lock(&client->lock);
 			CAM_DBG(CAM_CDM, "Found client slot %d", i);
@@ -222,7 +222,7 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 					client->handle);
 			}
 			mutex_unlock(&client->lock);
-			mutex_unlock(&cdm_hw->hw_mutex);
+			//mutex_unlock(&cdm_hw->hw_mutex); //LGE_CHANGE, for recovery
 		}
 	}
 }

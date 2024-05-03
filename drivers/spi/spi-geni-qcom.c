@@ -168,6 +168,9 @@ struct spi_geni_master {
 	int set_cs_sb_delay; /*SB PIPE Delay */
 	int set_pre_cmd_dly; /*Pre command Delay */
 	bool use_fixed_timeout;
+#ifdef CONFIG_MACH_LGE
+	bool force_clk_idx0;
+#endif
 };
 
 static struct spi_master *get_spi_master(struct device *dev)
@@ -318,6 +321,10 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 		goto setup_fifo_params_exit;
 	}
 
+#ifdef CONFIG_MACH_LGE
+	if (mas->force_clk_idx0)
+		idx = 0;
+#endif
 	spi_setup_word_len(mas, spi_slv->mode, spi_slv->bits_per_word);
 	geni_write_reg(loopback_cfg, mas->base, SE_SPI_LOOPBACK);
 	geni_write_reg(demux_sel, mas->base, SE_SPI_DEMUX_SEL);
@@ -747,6 +754,9 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 {
 	int ret = 0;
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
+#ifdef CONFIG_MACH_LGE
+	int cur_xfer_mode = mas->cur_xfer_mode;
+#endif
 	int count;
 
 	if (mas->shared_ee) {
@@ -806,6 +816,10 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 	}
 
 	mas->cur_xfer_mode = select_xfer_mode(spi, spi_msg);
+#ifdef CONFIG_MACH_LGE
+	if (mas->cur_xfer_mode >= 0 && mas->cur_xfer_mode != cur_xfer_mode)
+		geni_se_select_mode(mas->base, mas->cur_xfer_mode);
+#endif
 
 	if (mas->cur_xfer_mode < 0) {
 		dev_err(mas->dev, "%s: Couldn't select mode %d\n", __func__,
@@ -814,10 +828,14 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 	} else if (mas->cur_xfer_mode == GSI_DMA) {
 		memset(mas->gsi, 0,
 				(sizeof(struct spi_geni_gsi) * NUM_SPI_XFER));
+#ifndef CONFIG_MACH_LGE
 		geni_se_select_mode(mas->base, GSI_DMA);
+#endif
 		ret = spi_geni_map_buf(mas, spi_msg);
 	} else {
+#ifndef CONFIG_MACH_LGE
 		geni_se_select_mode(mas->base, mas->cur_xfer_mode);
+#endif
 		ret = setup_fifo_params(spi_msg->spi, spi);
 	}
 
@@ -831,8 +849,16 @@ static int spi_geni_unprepare_message(struct spi_master *spi_mas,
 	struct spi_geni_master *mas = spi_master_get_devdata(spi_mas);
 	int count = 0;
 
+#ifdef CONFIG_MACH_LGE
+	/* NOTE:
+	 * If spi_geni initializes cur_speed_hz and cur_word_len when unprepare
+	 * a message, the setup will be repeated each time a new transfer is
+	 * sent. Do not initialize to avoid unnecessary setup.
+	 */
+#else
 	mas->cur_speed_hz = 0;
 	mas->cur_word_len = 0;
+#endif
 	if (mas->cur_xfer_mode == GSI_DMA)
 		spi_geni_unmap_buf(mas, spi_msg);
 
@@ -1733,6 +1759,11 @@ static int spi_geni_probe(struct platform_device *pdev)
 	geni_mas->dis_autosuspend =
 		of_property_read_bool(pdev->dev.of_node,
 				"qcom,disable-autosuspend");
+#ifdef CONFIG_MACH_LGE
+	geni_mas->force_clk_idx0 =
+		of_property_read_bool(pdev->dev.of_node,
+				"lge,force-clk-idx0");
+#endif
 	/*
 	 * This property will be set when spi is being used from
 	 * dual Execution Environments unlike gsi_mode flag

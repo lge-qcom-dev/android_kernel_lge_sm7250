@@ -9,6 +9,64 @@
 #include "cam_flash_core.h"
 #include "cam_common_util.h"
 
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+extern void cam_gpio_flash_on(struct cam_flash_ctrl *flash_ctrl);
+extern void cam_gpio_flash_off(struct cam_flash_ctrl *flash_ctrl);
+extern void cam_gpio_torch_on(struct cam_flash_ctrl *flash_ctrl);
+extern void cam_gpio_torch_off(struct cam_flash_ctrl *flash_ctrl);
+extern struct class* get_camera_class(void);
+
+int flash_state = 0;
+struct platform_device *pdev_factory_test_flash;
+
+static ssize_t show_flashduty(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    return sprintf(buf, "%d\n", flash_state);
+}
+static ssize_t store_flashduty(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct cam_flash_ctrl *fctrl = NULL;
+	CAM_DBG(CAM_FLASH, "Enter!\n");
+	flash_state = simple_strtol(buf, NULL, 10);
+	CAM_DBG(CAM_FLASH, "torch:set flash_state= %d\n", flash_state);
+	fctrl = platform_get_drvdata(pdev_factory_test_flash);
+	switch(flash_state){
+        case 1:
+            cam_gpio_torch_on(fctrl);
+            break;
+        case 0:
+        default:
+            cam_gpio_torch_off(fctrl);
+            break;
+	}
+	CAM_DBG(CAM_FLASH, "Exit!\n");
+	return count;
+}
+
+static DEVICE_ATTR(rear_flash, 0664, show_flashduty, store_flashduty);
+
+static void cam_flash_factory_create_sysfs(void)
+{
+	static struct device *flashlight_device = NULL;
+	int rc = 0;
+
+	CAM_DBG(CAM_FLASH, "[flashlight] create cam_flash_factory_create_sysfs");
+	if(!flashlight_device){
+		flashlight_device = device_create(get_camera_class(), NULL, 0, NULL,  "flash_external_ic");  // /sys/class/camera/flash_external_ic
+
+		if (IS_ERR_OR_NULL(flashlight_device))  {
+			CAM_ERR(CAM_FLASH, "[flashlight] Failed to create device_create\n");
+		}
+	       rc = device_create_file(flashlight_device, &dev_attr_rear_flash);// /sys/class/camera/flash_external_ic/rear_flash
+	       if(rc){
+			CAM_ERR(CAM_FLASH, "[flashlight] Failed to creat device_create_file!\n");
+		}
+	}else{
+		CAM_ERR(CAM_FLASH, "[flashlight] flashlight_device already exist\n");
+	}
+}
+#endif
+
 static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		void *arg, struct cam_flash_private_soc *soc_private)
 {
@@ -546,6 +604,12 @@ static int32_t cam_flash_platform_probe(struct platform_device *pdev)
 	fctrl->bridge_intf.ops.apply_req = cam_flash_apply_request;
 	fctrl->bridge_intf.ops.flush_req = cam_flash_flush_request;
 	fctrl->last_flush_req = 0;
+
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+	cam_flash_factory_create_sysfs();
+	pdev_factory_test_flash = pdev;
+	//-bug 550211, tiantian.wt, modify, 2020/05/05, modify codes for factory flashlight
+#endif
 
 	mutex_init(&(fctrl->flash_mutex));
 

@@ -743,8 +743,7 @@ int sde_power_resource_enable(struct sde_power_handle *phandle, bool enable)
 			pr_err("failed to enable vregs rc=%d\n", rc);
 			goto vreg_err;
 		}
-
-		rc = sde_power_scale_reg_bus(phandle, VOTE_INDEX_LOW, true);
+		rc = sde_power_scale_reg_bus(phandle, VOTE_INDEX_MEDIUM, true);
 		if (rc) {
 			pr_err("failed to set reg bus vote rc=%d\n", rc);
 			goto reg_bus_hdl_err;

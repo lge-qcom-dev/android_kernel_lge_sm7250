@@ -38,7 +38,9 @@
 #define CYCLES_PER_MICRO_SEC_DEFAULT 4915
 #define CCI_MAX_DELAY 1000000
 
-#define CCI_TIMEOUT msecs_to_jiffies(100)
+/* LGE_CHANGE_S, [Stability] change timeout 1500 to 300ms because add cci retrial  2020-09-03, CST, camera-stability@lge.com */
+//#define CCI_TIMEOUT msecs_to_jiffies(100)
+#define CCI_TIMEOUT msecs_to_jiffies(300)
 
 #define NUM_QUEUES 2
 
@@ -229,6 +231,10 @@ struct cci_device {
 	bool is_burst_read;
 	uint32_t irqs_disabled;
 	struct mutex init_mutex;
+#ifdef CONFIG_MACH_LGE
+    struct mutex global_mutex;
+    struct completion sensor_complete;
+#endif
 };
 
 enum cam_cci_i2c_cmd_type {

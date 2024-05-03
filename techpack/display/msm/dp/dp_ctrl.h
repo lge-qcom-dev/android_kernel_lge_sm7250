@@ -30,6 +30,9 @@ struct dp_ctrl {
 	void (*set_mst_channel_info)(struct dp_ctrl *dp_ctrl,
 			enum dp_stream_id strm,
 			u32 ch_start_slot, u32 ch_tot_slots);
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	bool lt_failure;
+#endif
 };
 
 struct dp_ctrl_in {

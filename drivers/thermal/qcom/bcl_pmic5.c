@@ -420,6 +420,9 @@ bcl_read_exit:
 	return ret;
 }
 
+#ifdef CONFIG_LGE_PM
+extern void wa_control_vbus2_regulator_trigger(void);
+#endif
 static irqreturn_t bcl_handle_irq(int irq, void *data)
 {
 	struct bcl_peripheral_data *perph_data =
@@ -436,6 +439,9 @@ static irqreturn_t bcl_handle_irq(int irq, void *data)
 			irq_status);
 		of_thermal_handle_trip_temp(perph_data->tz_dev,
 				perph_data->status_bit_idx);
+#ifdef CONFIG_LGE_PM
+		wa_control_vbus2_regulator_trigger();
+#endif
 	}
 
 	return IRQ_HANDLED;

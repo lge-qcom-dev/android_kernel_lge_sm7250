@@ -851,14 +851,91 @@ static int cam_fd_mgr_util_prepare_hw_update_entries(
 	return rc;
 }
 
+/* LGE_CHANGE_S, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
+static int cam_fd_mgr_hw_restart(void *hw_mgr_priv, void *hw_ctx_args)
+{
+	struct cam_fd_hw_mgr *hw_mgr = (struct cam_fd_hw_mgr *)hw_mgr_priv;
+	struct cam_fd_hw_mgr_ctx *hw_ctx = (struct cam_fd_hw_mgr_ctx *)hw_ctx_args;
+	struct cam_fd_device *hw_device;
+	struct cam_fd_hw_deinit_args hw_deinit_args = {0,};
+	struct cam_fd_hw_init_args hw_init_args = {0,};
+	struct cam_hw_info *fd_hw;
+	struct cam_fd_core *fd_core;
+	int rc = 0;
+
+
+	if (!hw_ctx || !hw_ctx->ctx_in_use) {
+		CAM_ERR(CAM_FD, "Invalid context is used, hw_ctx=%pK", hw_ctx);
+		return -EPERM;
+	}
+	CAM_DBG(CAM_FD, "ctx index=%u, hw_ctx=%d", hw_ctx->ctx_index,
+		hw_ctx->device_index);
+
+	rc = cam_fd_mgr_util_get_device(hw_mgr, hw_ctx, &hw_device);
+	if (rc) {
+		CAM_ERR(CAM_FD, "Error in getting device %d", rc);
+		return rc;
+	}
+
+	CAM_ERR(CAM_FD, "recovery start FD Device ready_to_process = %d",hw_device->ready_to_process);
+
+	if (hw_device->hw_intf->hw_ops.deinit) {
+		hw_deinit_args.hw_ctx = hw_ctx;
+		hw_deinit_args.ctx_hw_private = hw_ctx->ctx_hw_private;
+		rc = hw_device->hw_intf->hw_ops.deinit(
+			hw_device->hw_intf->hw_priv, &hw_deinit_args,
+			sizeof(hw_deinit_args));
+		if (rc) {
+			CAM_ERR(CAM_FD, "Failed in HW DeInit %d", rc);
+			return rc;
+		}
+	}
+
+	fd_hw = (struct cam_hw_info *)hw_device->hw_intf->hw_priv;
+	fd_core = (struct cam_fd_core *)fd_hw->core_info;
+
+	if (hw_device->hw_intf->hw_ops.init && rc == 0 ) {
+		hw_init_args.hw_ctx = hw_ctx;
+		hw_init_args.ctx_hw_private = hw_ctx->ctx_hw_private;
+		hw_init_args.is_hw_reset = false;
+		if (fd_core->hw_static_info->enable_errata_wa.skip_reset)
+			hw_init_args.reset_required = false;
+		else
+			hw_init_args.reset_required = true;
+
+		rc = hw_device->hw_intf->hw_ops.init(
+			hw_device->hw_intf->hw_priv, &hw_init_args,
+			sizeof(hw_init_args));
+		if (rc) {
+			CAM_ERR(CAM_FD, "Failed in HW Init %d", rc);
+			return rc;
+		}
+
+		if (hw_init_args.is_hw_reset) {
+			mutex_lock(&hw_device->lock);
+			hw_device->ready_to_process = true;
+			hw_device->req_id = -1;
+			hw_device->cur_hw_ctx = NULL;
+			mutex_unlock(&hw_device->lock);
+		}
+		CAM_ERR(CAM_FD, "recovery end FD Device ready_to_process = %d",hw_device->ready_to_process);
+	} else {
+		CAM_ERR(CAM_FD, "Invalid init function");
+		return -EINVAL;
+	}
+	return rc;
+}
+/* LGE_CHANGE_E, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
+
 static int cam_fd_mgr_util_submit_frame(void *priv, void *data)
 {
 	struct cam_fd_device *hw_device;
 	struct cam_fd_hw_mgr *hw_mgr;
 	struct cam_fd_mgr_frame_request *frame_req;
 	struct cam_fd_hw_mgr_ctx *hw_ctx;
-	struct cam_fd_hw_cmd_start_args start_args;
+	struct cam_fd_hw_cmd_start_args start_args = {0,};
 	int rc;
+	bool retry_request = false; /* LGE_CHANGE, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
 
 	if (!priv) {
 		CAM_ERR(CAM_FD, "Invalid data");
@@ -899,17 +976,64 @@ static int cam_fd_mgr_util_submit_frame(void *priv, void *data)
 				"Device busy for longer time with cur_hw_ctx=%pK, ReqId=%lld",
 				hw_device->cur_hw_ctx, hw_device->req_id);
 		}
-		mutex_unlock(&hw_device->lock);
-		mutex_unlock(&hw_mgr->frame_req_mutex);
-		return -EBUSY;
-	}
 
+/* LGE_CHANGE_S, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
+#if 1
+		if( hw_mgr->num_pending_frames > 5 && hw_device->req_id == 1 )
+		{
+			CAM_ERR(CAM_FD, "num_pending_frames %d ReqId=%lld", hw_mgr->num_pending_frames, hw_device->req_id);
+			cam_fd_mgr_hw_restart(priv,hw_ctx);
+			retry_request = true;
+		}
+		else
+		{
+			mutex_unlock(&hw_device->lock);
+			mutex_unlock(&hw_mgr->frame_req_mutex);
+			return -EBUSY;
+		}
+#else
+// QCT org
+        mutex_unlock(&hw_device->lock);
+        mutex_unlock(&hw_mgr->frame_req_mutex);
+        return -EBUSY;
+#endif
+/* LGE_CHANGE_E, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
+	}
 	trace_cam_submit_to_hw("FD", frame_req->request_id);
 
+/* LGE_CHANGE_S, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
+#if 1
+	if(retry_request == false){
+		list_del_init(&frame_req->list);
+		hw_mgr->num_pending_frames--;
+		frame_req->submit_timestamp = ktime_get();
+		list_add_tail(&frame_req->list, &hw_mgr->frame_processing_list);
+	}
+	else
+	{
+		struct cam_fd_mgr_frame_request *req_temp;
+		list_for_each_entry_safe(frame_req, req_temp,
+			&hw_mgr->frame_processing_list, list) {
+			if (frame_req->request_id == hw_device->req_id)
+				break;
+		}
+
+		if(frame_req->request_id != hw_device->req_id )
+		{
+			CAM_ERR(CAM_FD, "recovery fail return frame_request_id=%d",frame_req->request_id);
+			mutex_unlock(&hw_device->lock);
+			mutex_unlock(&hw_mgr->frame_req_mutex);
+			return -EBUSY;
+		}
+	}
+#else
+// QCT org
 	list_del_init(&frame_req->list);
 	hw_mgr->num_pending_frames--;
 	frame_req->submit_timestamp = ktime_get();
 	list_add_tail(&frame_req->list, &hw_mgr->frame_processing_list);
+#endif
+/* LGE_CHANGE_E, restart FDHw when "out of memory" issue at FDw, 2020-03-26, CST */
 
 	if (hw_device->hw_intf->hw_ops.start) {
 		start_args.hw_ctx = hw_ctx;
@@ -1317,6 +1441,7 @@ static int cam_fd_mgr_hw_start(void *hw_mgr_priv, void *mgr_start_args)
 			hw_init_args.reset_required = false;
 		else
 			hw_init_args.reset_required = true;
+
 		rc = hw_device->hw_intf->hw_ops.init(
 			hw_device->hw_intf->hw_priv, &hw_init_args,
 			sizeof(hw_init_args));

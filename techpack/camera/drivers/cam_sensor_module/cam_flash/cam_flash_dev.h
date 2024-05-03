@@ -208,6 +208,14 @@ struct cam_flash_ctrl {
 	struct i2c_data_settings            i2c_data;
 	uint32_t                            last_flush_req;
 	uint32_t                            open_cnt;
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *gpio_state_flash_on;
+	struct pinctrl_state *gpio_state_flash_off;
+	struct pinctrl_state *gpio_state_torch_on;
+	struct pinctrl_state *gpio_state_torch_off;
+	bool use_pinctrl;
+#endif
 };
 
 int cam_flash_pmic_gpio_pkt_parser(

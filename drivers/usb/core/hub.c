@@ -69,7 +69,7 @@ static void hub_event(struct work_struct *work);
 /* synchronize hub-port add/remove and peering operations */
 DEFINE_MUTEX(usb_port_peer_mutex);
 
-static bool skip_extended_resume_delay = 1;
+static bool skip_extended_resume_delay = 0;
 module_param(skip_extended_resume_delay, bool, 0644);
 MODULE_PARM_DESC(skip_extended_resume_delay,
 		"removes extra delay added to finish bus resume");
@@ -5282,6 +5282,10 @@ loop:
 			usb_hub_set_port_power(hdev, hub, port1, true);
 			msleep(hub_power_on_good_delay(hub));
 		}
+#ifdef CONFIG_LGE_USB
+		if (status == -ESHUTDOWN)
+			goto done;
+#endif
 	}
 	if (hub->hdev->parent ||
 			!hcd->driver->port_handed_over ||

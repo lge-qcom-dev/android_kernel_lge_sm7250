@@ -3,7 +3,9 @@
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  */
 
+#ifndef CONFIG_LGE_PM
 #define pr_fmt(fmt) "SMB1390: %s: " fmt, __func__
+#endif
 
 #include <linux/debugfs.h>
 #include <linux/device.h>
@@ -18,6 +20,10 @@
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/iio/consumer.h>
+
+#ifdef CONFIG_MACH_LITO_ACELM
+#include <soc/qcom/lge/board_lge.h>
+#endif
 
 #define MISC_CSIR_LSB_REG		0x9F1
 #define MISC_CSIR_MSB_REG		0x9F2
@@ -72,6 +78,9 @@
 #define CORE_FTRIM_LVL_REG		0x1033
 #define CFG_WIN_HI_MASK			GENMASK(3, 2)
 #define WIN_OV_LVL_1000MV		0x08
+#ifdef CONFIG_LGE_PM
+#define WIN_OV_LVL_1200MV		0x0C
+#endif
 
 #define CORE_FTRIM_MISC_REG		0x1034
 #define TR_WIN_1P5X_BIT			BIT(0)
@@ -101,6 +110,9 @@
 #define CC_MODE_VOTER		"CC_MODE_VOTER"
 #define MAIN_DISABLE_VOTER	"MAIN_DISABLE_VOTER"
 #define TAPER_MAIN_ICL_LIMIT_VOTER	"TAPER_MAIN_ICL_LIMIT_VOTER"
+#ifdef CONFIG_LGE_PM
+#define VPH_OV_VOTER	"VPH_OV_VOTER"
+#endif
 
 #define CP_MASTER		0
 #define CP_SLAVE		1
@@ -150,6 +162,9 @@ enum print_reason {
 	PR_INFO			= BIT(2),
 	PR_EXT_DEPENDENCY	= BIT(3),
 	PR_MISC			= BIT(4),
+#ifdef CONFIG_LGE_PM
+	PR_LGE  		= BIT(31),
+#endif
 };
 
 struct smb1390_iio {
@@ -208,6 +223,10 @@ struct smb1390 {
 	bool			suspended;
 	bool			disabled;
 	u32			debug_mask;
+#ifdef CONFIG_LGE_PM
+	u32			min_ilim_ua_pps;
+	u32			min_ilim_ua_qc3;
+#endif
 	u32			max_temp_alarm_degc;
 	u32			max_cutoff_soc;
 	u32			pl_output_mode;
@@ -486,22 +505,80 @@ static irqreturn_t default_irq_handler(int irq, void *data)
 	struct smb1390 *chip = data;
 	int i, rc;
 	bool enable;
+#ifdef CONFIG_LGE_PM
+	int nirq = 0, smb_en_reason = 0;
+	int vusb = 0, vbat = 0, status1 = 0, status2 = 0;
+	struct power_supply* psy_usb = power_supply_get_by_name("usb");
+	struct power_supply* psy_bms = power_supply_get_by_name("bms");
+	union power_supply_propval val = { 0, };
+#endif
 
 	for (i = 0; i < NUM_IRQS; ++i) {
 		if (irq == chip->irqs[i]) {
+#ifdef CONFIG_LGE_PM
+			nirq = i;
+#else
 			smb1390_dbg(chip, PR_INTERRUPT, "%s IRQ triggered\n",
 				smb_irqs[i].name);
+#endif
 			chip->irq_status |= 1 << i;
 		}
 	}
 
 	rc = smb1390_get_cp_en_status(chip, SWITCHER_EN, &enable);
 	if (!rc) {
+#ifdef CONFIG_LGE_PM
+		smb_en_reason = (psy_usb && !power_supply_get_property(
+					psy_usb, POWER_SUPPLY_PROP_SMB_EN_REASON, &val))
+					? val.intval : 0;
+		vusb = (psy_usb && !power_supply_get_property(
+					psy_usb, POWER_SUPPLY_PROP_VOLTAGE_NOW, &val))
+					? val.intval/1000 : 0;
+		vbat = (psy_bms && !power_supply_get_property(
+					psy_bms, POWER_SUPPLY_PROP_VOLTAGE_NOW, &val))
+					? val.intval/1000 : 0;
+		rc = smb1390_read(chip, CORE_STATUS1_REG, &status1);
+		if (rc < 0) {
+			pr_err("Couldn't read CORE_STATUS1 register, rc=%d\n", rc);
+		}
+		rc = smb1390_read(chip, CORE_STATUS2_REG, &status2);
+		if (rc < 0) {
+			pr_err("Couldn't read CORE_STATUS2 register, rc=%d\n", rc);
+		}
+
+		if (nirq == ILIM_IRQ &&
+			smb_en_reason == POWER_SUPPLY_CP_HVDCP3) {
+			if (chip->switcher_enabled != enable) {
+				chip->switcher_enabled = enable;
+				if (chip->fcc_votable)
+					rerun_election(chip->fcc_votable);
+				if (chip->cp_master_psy)
+					power_supply_changed(chip->cp_master_psy);
+			}
+			return IRQ_HANDLED;
+		} else {
+			if (chip->switcher_enabled != enable) {
+				chip->switcher_enabled = enable;
+				if (chip->fcc_votable)
+					rerun_election(chip->fcc_votable);
+			}
+			smb1390_dbg(chip, PR_INTERRUPT,
+				"%s IRQ triggered...vusb=%d, vbat=%d(x2=%d), "
+				"sts1=0x%x, sts2=0x%x, reg=%d, voter=%d\n",
+				smb_irqs[nirq].name, vusb, vbat, vbat*2,
+				status1, status2, enable, chip->switcher_enabled);
+		}
+
+		if (nirq == SWITCHER_OFF_WINDOW_IRQ && enable)
+			power_supply_get_property(chip->cp_master_psy,
+				POWER_SUPPLY_PROP_CHARGING_ENABLED, &val);
+#else
 		if (chip->switcher_enabled != enable) {
 			chip->switcher_enabled = enable;
 			if (chip->fcc_votable)
 				rerun_election(chip->fcc_votable);
 		}
+#endif
 	}
 
 	if (chip->cp_master_psy)
@@ -509,6 +586,22 @@ static irqreturn_t default_irq_handler(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+
+#ifdef CONFIG_LGE_PM
+static irqreturn_t vph_ov_irq_handler(int irq, void *data)
+{
+	struct smb1390 *chip = data;
+
+	if (is_psy_voter_available(chip)) {
+			vote(chip->disable_votable, VPH_OV_VOTER, true, 0);
+	} else {
+		smb1390_dbg(chip, PR_INTERRUPT,
+			"Couldn't disable CP, Voter is not available\n");
+	}
+
+	return default_irq_handler(irq, data);
+}
+#endif
 
 static const struct smb_irq smb_irqs[] = {
 	[SWITCHER_OFF_WINDOW_IRQ] = {
@@ -533,12 +626,20 @@ static const struct smb_irq smb_irqs[] = {
 	},
 	[VPH_OV_HARD_IRQ] = {
 		.name		= "vph-ov-hard",
+#ifdef CONFIG_LGE_PM
+		.handler	= vph_ov_irq_handler,
+#else
 		.handler	= default_irq_handler,
+#endif
 		.wake		= true,
 	},
 	[VPH_OV_SOFT_IRQ] = {
 		.name		= "vph-ov-soft",
+#ifdef CONFIG_LGE_PM
+		.handler	= vph_ov_irq_handler,
+#else
 		.handler	= default_irq_handler,
+#endif
 		.wake		= true,
 	},
 	[ILIM_IRQ] = {
@@ -925,6 +1026,23 @@ static int smb1390_slave_disable_vote_cb(struct votable *votable, void *data,
 	return rc;
 }
 
+#ifdef CONFIG_LGE_PM
+/* select min_ilim_ua value as to cp type(PPS or QC3) */
+static void lge_update_min_ilim_ua(struct smb1390 *chip)
+{
+	int rc = 0;
+	union power_supply_propval pval = {0, };
+
+	chip->min_ilim_ua = chip->min_ilim_ua_pps;
+	if (chip->usb_psy && chip->min_ilim_ua_qc3 >= 500000) {
+		rc = power_supply_get_property(chip->usb_psy,
+				POWER_SUPPLY_PROP_SMB_EN_REASON, &pval);
+		if (!rc && pval.intval == POWER_SUPPLY_CP_HVDCP3)
+			chip->min_ilim_ua = chip->min_ilim_ua_qc3;
+	}
+}
+#endif
+
 static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 			      int ilim_uA, const char *client)
 {
@@ -945,6 +1063,9 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 	ilim_uA = min(ilim_uA, (is_cps_available(chip) ?
 				MAX_ILIM_DUAL_CP_UA : MAX_ILIM_UA));
 	/* ILIM less than min_ilim_ua, disable charging */
+#ifdef CONFIG_LGE_PM
+	lge_update_min_ilim_ua(chip);
+#endif
 	if (ilim_uA < chip->min_ilim_ua) {
 		smb1390_dbg(chip, PR_INFO, "ILIM %duA is too low to allow charging\n",
 			ilim_uA);
@@ -1165,6 +1286,19 @@ static void smb1390_status_change_work(struct work_struct *work)
 				get_effective_result(chip->fv_votable))
 			vote(chip->disable_votable, TAPER_END_VOTER, false, 0);
 
+#ifdef CONFIG_LGE_PM
+		rc = power_supply_get_property(chip->batt_psy,
+				POWER_SUPPLY_PROP_CHARGE_TYPE, &pval);
+		if (rc < 0) {
+			pr_err("Couldn't get charge type rc=%d\n", rc);
+		} else if (pval.intval ==
+				POWER_SUPPLY_CHARGE_TYPE_NONE) {
+			vote(chip->disable_votable, VPH_OV_VOTER, false, 0);
+		} else if (pval.intval ==
+				POWER_SUPPLY_CHARGE_TYPE_FAST) {
+			vote(chip->disable_votable, TAPER_END_VOTER, false, 0);
+		}
+#endif
 		/*
 		 * all votes that would result in disabling the charge pump have
 		 * been cast; ensure the charhe pump is still enabled before
@@ -1245,7 +1379,12 @@ static void smb1390_taper_work(struct work_struct *work)
 	struct smb1390 *chip = container_of(work, struct smb1390, taper_work);
 	union power_supply_propval pval = {0, };
 	int rc, fcc_uA, delta_fcc_uA, main_fcc_ua = 0, fcc_cp_ua;
+#ifdef CONFIG_LGE_PM
+	int min_ilim_ua = 0;
 
+	lge_update_min_ilim_ua(chip);
+	min_ilim_ua = chip->min_ilim_ua;
+#endif
 	if (!is_psy_voter_available(chip))
 		goto out;
 
@@ -1281,6 +1420,10 @@ static void smb1390_taper_work(struct work_struct *work)
 				(smb1390_is_adapter_cc_mode(chip) ?
 							CC_MODE_TAPER_DELTA_UA :
 							DEFAULT_TAPER_DELTA_UA);
+#ifdef CONFIG_LGE_PM
+			if (get_effective_result(chip->fcc_votable) < 2000000)
+				delta_fcc_uA = DEFAULT_TAPER_DELTA_UA;
+#endif
 			fcc_uA = get_effective_result(chip->fcc_votable)
 								- delta_fcc_uA;
 			smb1390_dbg(chip, PR_INFO, "taper work reducing FCC to %duA\n",
@@ -1308,7 +1451,11 @@ static void smb1390_taper_work(struct work_struct *work)
 				fcc_uA, fcc_cp_ua, main_fcc_ua,
 				(chip->min_ilim_ua*2));
 
+#ifdef CONFIG_LGE_PM
+			if (fcc_cp_ua < (min_ilim_ua * 2)) {
+#else
 			if (fcc_cp_ua < (chip->min_ilim_ua * 2)) {
+#endif
 				vote(chip->disable_votable, TAPER_END_VOTER,
 								true, 0);
 				/*
@@ -1326,13 +1473,100 @@ static void smb1390_taper_work(struct work_struct *work)
 			smb1390_dbg(chip, PR_INFO, "In fast charging. Wait for next taper\n");
 		}
 
+#ifdef CONFIG_MACH_LITO_WINGLM
+		msleep(5000);
+#else
 		msleep(500);
+#endif
 	}
 out:
 	smb1390_dbg(chip, PR_INFO, "taper work exit\n");
 	vote(chip->fcc_votable, CP_VOTER, false, 0);
 	chip->taper_work_running = false;
 }
+
+#ifdef CONFIG_LGE_PM
+static void debug_battery(struct smb1390* chip, int mvalue)
+{
+	int status = 0;
+	bool enable = false;
+	union power_supply_propval val = { 0, };
+
+	if (mvalue == 0) {
+		int cp_status1 = smb1390_read(chip, CORE_STATUS1_REG, &status) >= 0 ? status : -1;
+		int cp_status2 = smb1390_read(chip, CORE_STATUS2_REG, &status) >= 0 ? status : -1;
+		int cp_ilim = !smb1390_get_cp_ilim(chip, &val) ? val.intval : -1;
+		int cp_enable = smb1390_get_cp_en_status(chip, SMB_PIN_EN, &enable) >= 0 ? enable : -1;
+		int cp_switcher_en = !smb1390_get_cp_en_status(chip, SWITCHER_EN, &enable) ? enable : -1;
+		int cp_isns_slave = !smb1390_get_isns_slave(chip, &val) ? val.intval : -1;
+		int cp_isns = !smb1390_get_isns_master(chip, &val) ? val.intval : -1;
+		int min_icl = 0;
+
+		lge_update_min_ilim_ua(chip);
+		min_icl = chip->min_ilim_ua;
+
+		pr_info("PMINFO: [CHP] CP_DISABLE:%d(%s), CP_ILIM:%d(%s), CP_SLAVE_DISABLE:%d(%s), "
+				"cp_ilim:%d, cp_enable:%d, cp_isns:%d, cp_isns_slave:%d, "
+				"cp_status1:0x%02x, cp_status2:0x%02x, cp_switcher_en:%d, min_icl:%d\n",
+			get_effective_result(chip->disable_votable), get_effective_client(chip->disable_votable),
+			get_effective_result(chip->ilim_votable)/1000, get_effective_client(chip->ilim_votable),
+			get_effective_result(chip->slave_disable_votable),
+			get_effective_client(chip->slave_disable_votable),
+			cp_ilim/1000, cp_enable, cp_isns/1000, cp_isns_slave/1000,
+			cp_status1, cp_status2, cp_switcher_en, min_icl/1000);
+	}
+}
+
+static int smb1390_get_prop_charging_enabled(struct smb1390 *chip)
+{
+	extern bool unified_nodes_show(const char* key, char* value);
+	union power_supply_propval capa = {0, };
+	char buff [16] = { 0, };
+	int test, status, status2, ret = false, vbat = 0, vusb = 0;
+	static bool pass = false;
+	struct power_supply* psy_usb = power_supply_get_by_name("usb");
+	struct power_supply* psy_bms = power_supply_get_by_name("bms");
+	union power_supply_propval val = { 0, };
+
+	vbat = (psy_bms && !power_supply_get_property(
+					psy_bms, POWER_SUPPLY_PROP_VOLTAGE_NOW, &val))
+					? val.intval/1000 : 0;
+	vusb = (psy_usb && !power_supply_get_property(
+					psy_usb, POWER_SUPPLY_PROP_VOLTAGE_NOW, &val))
+					? val.intval/1000 : 0;
+	if (!smb1390_read(chip, CORE_STATUS1_REG, &status)
+			&& !smb1390_read(chip, CORE_STATUS2_REG, &status2)) {
+		if (((status == 0x4) || (status == 0xC))&& (status2 == 0x80)) {
+			smb1390_dbg(chip, PR_LGE, "success vbat=%d, vusb=%d\n", vbat, vusb);
+			ret = true;
+			pass = true;
+		} else if (is_psy_voter_available(chip) && !power_supply_get_property(
+				chip->batt_psy, POWER_SUPPLY_PROP_CAPACITY, &capa)
+				&& capa.intval >= 60) {
+			ret = true;
+		} else {
+			smb1390_dbg(chip, PR_LGE, "waiting... vbat=%d, vusb=%d\n", vbat, vusb);
+		}
+	}
+
+	if (unified_nodes_show("support_fastpl", buff)
+			&& sscanf(buff, "%d", &test) && test == 1) {
+		smb1390_dbg(chip, PR_LGE, "get charging enable %d (0x%x, 0x%x, soc : %d, pass : %d)\n",
+			ret, status, status2, capa.intval, pass);
+		if (!status && !status2) {
+			pass = false;
+		}
+	} else {
+		pass = false;
+	}
+
+	if (pass)
+		ret = true;
+
+	return ret;
+}
+
+#endif
 
 static enum power_supply_property smb1390_charge_pump_props[] = {
 	POWER_SUPPLY_PROP_CP_STATUS1,
@@ -1350,6 +1584,10 @@ static enum power_supply_property smb1390_charge_pump_props[] = {
 	POWER_SUPPLY_PROP_MIN_ICL,
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_PARALLEL_MODE,
+#ifdef CONFIG_LGE_PM
+	POWER_SUPPLY_PROP_DEBUG_BATTERY,
+	POWER_SUPPLY_PROP_CHARGING_ENABLED,
+#endif
 };
 
 static int smb1390_get_prop_suspended(struct smb1390 *chip,
@@ -1489,6 +1727,9 @@ static int smb1390_get_prop(struct power_supply *psy,
 		val->intval = chip->pl_output_mode;
 		break;
 	case POWER_SUPPLY_PROP_MIN_ICL:
+#ifdef CONFIG_LGE_PM
+		lge_update_min_ilim_ua(chip);
+#endif
 		val->intval = chip->min_ilim_ua;
 		break;
 	case POWER_SUPPLY_PROP_MODEL_NAME:
@@ -1498,6 +1739,14 @@ static int smb1390_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_PARALLEL_MODE:
 		val->intval = chip->pl_input_mode;
 		break;
+#ifdef CONFIG_LGE_PM
+	case POWER_SUPPLY_PROP_DEBUG_BATTERY:
+		val->intval = -1;
+		break;
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+		val->intval = smb1390_get_prop_charging_enabled(chip);
+		break;
+#endif
 	default:
 		smb1390_dbg(chip, PR_MISC, "charge pump power supply get prop %d not supported\n",
 			prop);
@@ -1530,6 +1779,23 @@ static int smb1390_set_prop(struct power_supply *psy,
 			vote_override(chip->ilim_votable, CC_MODE_VOTER,
 					(val->intval > 0), val->intval);
 		break;
+#ifdef CONFIG_LGE_PM
+	case POWER_SUPPLY_PROP_PARALLEL_OUTPUT_MODE:
+		chip->pl_output_mode = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_PARALLEL_MODE:
+		chip->pl_input_mode = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_DEBUG_BATTERY:
+		debug_battery(chip, val->intval);
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX:
+		lge_update_min_ilim_ua(chip);
+		if (val->intval >= chip->min_ilim_ua)
+			smb1390_set_ilim(chip,
+				DIV_ROUND_CLOSEST(val->intval - 500000, 100000));
+		break;
+#endif
 	default:
 		smb1390_dbg(chip, PR_MISC, "charge pump power supply set prop %d not supported\n",
 			prop);
@@ -1587,6 +1853,10 @@ static int smb1390_init_charge_pump_psy(struct smb1390 *chip)
 
 static int smb1390_parse_dt(struct smb1390 *chip)
 {
+#ifdef CONFIG_LGE_PM
+	char str_pl_input[4][10] = {"NONE", "USBIN", "USBIN_EXT", "USBMID"};
+	char str_pl_output[3][5] = {"NONE", "VPH", "VBAT"};
+#endif
 	int rc;
 
 	rc = of_property_match_string(chip->dev->of_node, "io-channel-names",
@@ -1607,10 +1877,15 @@ static int smb1390_parse_dt(struct smb1390 *chip)
 		return rc;
 	}
 
-	chip->min_ilim_ua = 1000000; /* 1A */
+	chip->min_ilim_ua = 500000; /* 500mA */
 	of_property_read_u32(chip->dev->of_node, "qcom,min-ilim-ua",
 			&chip->min_ilim_ua);
-
+#ifdef CONFIG_LGE_PM
+	chip->min_ilim_ua_pps = chip->min_ilim_ua;
+	chip->min_ilim_ua_qc3 = 0;
+	of_property_read_u32(chip->dev->of_node, "lge,qc3-min-ilim-ua",
+			&chip->min_ilim_ua_qc3);
+#endif
 	chip->max_temp_alarm_degc = 105;
 	of_property_read_u32(chip->dev->of_node, "qcom,max-temp-alarm-degc",
 			&chip->max_temp_alarm_degc);
@@ -1638,6 +1913,13 @@ static int smb1390_parse_dt(struct smb1390 *chip)
 			     "qcom,cc-mode-taper-main-icl-ua",
 			     &chip->cc_mode_taper_main_icl_ua);
 
+#ifdef CONFIG_LGE_PM
+	smb1390_dbg(chip, PR_LGE,
+		"min_ilim=(%d, %d), max_temp=%d, cutoff_soc=%d, input_mode=%s, output_mode=%s",
+		chip->min_ilim_ua_pps/1000, chip->min_ilim_ua_qc3/1000,
+		chip->max_temp_alarm_degc, chip->max_cutoff_soc,
+		str_pl_input[chip->pl_input_mode], str_pl_output[chip->pl_output_mode]);
+#endif
 	return 0;
 }
 
@@ -1700,13 +1982,34 @@ static int smb1390_init_hw(struct smb1390 *chip)
 {
 	int rc = 0, val;
 
+#ifdef CONFIG_LGE_PM
+	/*
+	 * If the slave charger has registered, configure Master SMB1390 for
+	 * triple-chg config, else configure for dual. Later, if the slave
+	 * charger registers, re-configure for triple chg config from the
+	 * power-supply notifier.
+	 */
+	if (!chip->smb_init_done) {
+		if (is_cps_available(chip))
+			rc = smb1390_triple_init_hw(chip);
+		else
+			rc = smb1390_dual_init_hw(chip);
+
+		if (rc < 0)
+			return rc;
+	}
+#endif
 	/*
 	 * Improve ILIM accuracy:
 	 *  - Configure window (Vin - 2Vout) OV level to 1000mV
 	 *  - Configure VOUT tracking value to 1.0
 	 */
 	rc = smb1390_masked_write(chip, CORE_FTRIM_LVL_REG,
+#ifdef CONFIG_LGE_PM
+			CFG_WIN_HI_MASK, WIN_OV_LVL_1200MV);
+#else
 			CFG_WIN_HI_MASK, WIN_OV_LVL_1000MV);
+#endif
 	if (rc < 0)
 		return rc;
 
@@ -1743,6 +2046,7 @@ static int smb1390_init_hw(struct smb1390 *chip)
 		pr_err("Couldn't configure IREV threshold rc=%d\n", rc);
 		return rc;
 	}
+#ifndef CONFIG_LGE_PM
 	/*
 	 * If the slave charger has registered, configure Master SMB1390 for
 	 * triple-chg config, else configure for dual. Later, if the slave
@@ -1755,6 +2059,7 @@ static int smb1390_init_hw(struct smb1390 *chip)
 		else
 			rc = smb1390_dual_init_hw(chip);
 	}
+#endif
 
 	return rc;
 }
@@ -1895,7 +2200,7 @@ static int smb1390_master_probe(struct smb1390 *chip)
 
 	rc = smb1390_parse_dt(chip);
 	if (rc < 0) {
-		pr_err("Couldn't parse device tree rc=%d\n", rc);
+		pr_err("Couldn't parse device tree rc=%d, %s\n", rc, chip->dev->of_node->name);
 		return rc;
 	}
 
@@ -2081,6 +2386,34 @@ static int smb1390_slave_probe(struct smb1390 *chip)
 	return rc;
 }
 
+#ifdef CONFIG_MACH_LITO_ACELM
+static bool lge_disable_smb1390(void)
+{
+	if ((lge_get_sku_carrier() == HW_SKU_KR) &&
+		(lge_get_board_rev_no() > HW_REV_C ) ){
+		return true;
+	}
+
+	if ((lge_get_sku_carrier() == HW_SKU_GLOBAL     ||
+		 lge_get_sku_carrier() == HW_SKU_GLOBAL_MEA ||
+		 lge_get_sku_carrier() == HW_SKU_AU_OPEN    ||
+		 lge_get_sku_carrier() == HW_SKU_AU_TEL     ||
+		 lge_get_sku_carrier() == HW_SKU_GLOBAL_CERT) &&
+		(lge_get_board_rev_no() < HW_REV_1_0) ){
+		return true;
+	}
+
+	if (lge_get_laop_operator() == OP_OPEN_KR ||
+		lge_get_laop_operator() == OP_SKT_KR  ||
+		lge_get_laop_operator() == OP_KT_KR   ||
+		lge_get_laop_operator() == OP_LGU_KR  ){
+		return true;
+	}
+
+	return false;
+}
+#endif
+
 static int smb1390_probe(struct platform_device *pdev)
 {
 	struct smb1390 *chip;
@@ -2093,6 +2426,9 @@ static int smb1390_probe(struct platform_device *pdev)
 	chip->dev = &pdev->dev;
 	chip->die_temp = -ENODATA;
 	chip->disabled = true;
+#ifdef CONFIG_LGE_PM
+	chip->debug_mask = PR_INTERRUPT | PR_INFO | PR_LGE | PR_MISC;
+#endif
 
 	chip->regmap = dev_get_regmap(chip->dev->parent, NULL);
 	if (!chip->regmap) {
@@ -2101,6 +2437,19 @@ static int smb1390_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, chip);
+
+#ifdef CONFIG_MACH_LITO_ACELM
+	if (lge_disable_smb1390() == true) {
+		smb1390_dbg(chip, PR_LGE,
+			"ACE doesn't support SMB1390 (hw=%d, code=%d, sku=%d).\n",
+			lge_get_board_rev_no(),
+			lge_get_laop_operator(),
+			lge_get_sku_carrier());
+		rc = 0;
+		goto cleanup;
+	}
+#endif
+
 	chip->cp_role = (int)(unsigned long)of_device_get_match_data(chip->dev);
 	switch (chip->cp_role) {
 	case CP_MASTER:
@@ -2122,8 +2471,13 @@ static int smb1390_probe(struct platform_device *pdev)
 		goto cleanup;
 	}
 
+#ifdef CONFIG_LGE_PM
+	smb1390_dbg(chip, PR_INFO,
+		"smb1390 %s probed successfully\n", chip->cp_role ? "Slave" : "Master");
+#else
 	pr_info("smb1390 %s probed successfully\n", chip->cp_role ? "Slave" :
 		"Master");
+#endif
 	return 0;
 
 cleanup:
@@ -2134,6 +2488,11 @@ cleanup:
 static int smb1390_remove(struct platform_device *pdev)
 {
 	struct smb1390 *chip = platform_get_drvdata(pdev);
+
+#ifdef CONFIG_MACH_LITO_ACELM
+	if (lge_disable_smb1390() == true)
+		return 0;
+#endif
 
 	if (chip->cp_role !=  CP_MASTER) {
 		platform_set_drvdata(pdev, NULL);
@@ -2159,6 +2518,11 @@ static void smb1390_shutdown(struct platform_device *pdev)
 	struct smb1390 *chip = platform_get_drvdata(pdev);
 	int rc;
 
+#ifdef CONFIG_MACH_LITO_ACELM
+	if (lge_disable_smb1390() == true)
+		return;
+#endif
+
 	power_supply_unreg_notifier(&chip->nb);
 	/* Disable SMB1390 */
 	smb1390_dbg(chip, PR_MISC, "Disabling SMB1390\n");
@@ -2172,6 +2536,11 @@ static int smb1390_suspend(struct device *dev)
 {
 	struct smb1390 *chip = dev_get_drvdata(dev);
 
+#ifdef CONFIG_MACH_LITO_ACELM
+	if (lge_disable_smb1390() == true)
+		return 0;
+#endif
+
 	chip->suspended = true;
 	return 0;
 }
@@ -2179,6 +2548,11 @@ static int smb1390_suspend(struct device *dev)
 static int smb1390_resume(struct device *dev)
 {
 	struct smb1390 *chip = dev_get_drvdata(dev);
+
+#ifdef CONFIG_MACH_LITO_ACELM
+	if (lge_disable_smb1390() == true)
+		return 0;
+#endif
 
 	chip->suspended = false;
 

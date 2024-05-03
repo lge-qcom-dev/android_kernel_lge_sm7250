@@ -55,6 +55,12 @@
 #include "soc/qcom/secure_buffer.h"
 #include "soc/qcom/qtee_shmbridge.h"
 
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+#include <linux/lge_ds3.h>
+extern void request_dualscreen_recovery(void);
+extern int dp_ctrl_status;
+#endif
+
 #define CREATE_TRACE_POINTS
 #include "sde_trace.h"
 
@@ -724,6 +730,9 @@ static void _sde_clear_boot_config(struct sde_boot_config *boot_cfg)
 	SDE_IMEM_WRITE(&boot_cfg->addr2, 0x0);
 }
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+int skip_free_rdump = 0;
+#endif
 static int _sde_kms_release_splash_buffer(struct sde_kms *sde_kms,
 					unsigned int mem_addr,
 					unsigned int splash_buffer_size,
@@ -739,6 +748,15 @@ static int _sde_kms_release_splash_buffer(struct sde_kms *sde_kms,
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+	if(!skip_free_rdump)
+	{
+		SDE_DEBUG("Freeing display rdump region because dload_mode is disabled.\n");
+		ramdump_buffer_size = 0;
+	}
+	else
+		SDE_DEBUG("NOT freeing display rdump region because dload_mode is enabled.\n");
+#endif
 	/* leave ramdump memory only if base address matches */
 	if (ramdump_base == mem_addr &&
 			ramdump_buffer_size <= splash_buffer_size) {
@@ -1221,6 +1239,9 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
 	struct drm_device *dev;
 	int ret;
 	bool cwb_disabling;
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+	static int retry_wait_commit_count = 0;
+#endif
 
 	if (!kms || !crtc || !crtc->state) {
 		SDE_ERROR("invalid params\n");
@@ -1264,6 +1285,19 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
 		if (ret && ret != -EWOULDBLOCK) {
 			SDE_ERROR("wait for commit done returned %d\n", ret);
 			sde_crtc_request_frame_reset(crtc);
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+			if (is_ds_connected()) {
+				if (retry_wait_commit_count >= 10) {
+					SDE_ERROR("%s: Call request_dualscreen_recovery\n", __func__);
+					request_dualscreen_recovery();
+					retry_wait_commit_count = 0;
+					dp_ctrl_status = 1;
+				} else {
+					if (!dp_ctrl_status)
+						retry_wait_commit_count++;
+				}
+			}
+#endif
 			break;
 		}
 
@@ -2801,6 +2835,32 @@ static int sde_kms_get_mixer_count(const struct msm_kms *kms,
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+extern char* get_ddic_name(void *display);
+
+static bool sde_kms_check_for_simulation_panel(struct msm_kms *kms)
+{
+	struct sde_kms *sde_kms;
+	int i = 0;
+	bool is_sim_panel = false;
+	void *display = NULL;
+
+	if (!kms) {
+		SDE_ERROR("invalid kms\n");
+		return false;
+	}
+
+	sde_kms = to_sde_kms(kms);
+	for (i = 0; i < sde_kms->dsi_display_count; i++) {
+		display = sde_kms->dsi_displays[i];
+		if (!strcmp(get_ddic_name(display), "dsi_sim_cmd"))
+			is_sim_panel = true;
+	}
+
+	return is_sim_panel;
+}
+#endif
+
 static void _sde_kms_null_commit(struct drm_device *dev,
 		struct drm_encoder *enc)
 {
@@ -3127,6 +3187,9 @@ static const struct msm_kms_funcs kms_funcs = {
 	.postopen = _sde_kms_post_open,
 	.check_for_splash = sde_kms_check_for_splash,
 	.get_mixer_count = sde_kms_get_mixer_count,
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	.check_for_simulation_panel = sde_kms_check_for_simulation_panel,
+#endif
 };
 
 /* the caller api needs to turn on clock before calling it */

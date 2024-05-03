@@ -630,7 +630,7 @@
 		};
 	};
 };
-
+/* Disable WSA speaker amp
 &wsa881x_0212 {
 	compatible = "qcom,wsa881x";
 	reg = <0x10 0x20170212>;
@@ -642,7 +642,7 @@
 	reg = <0x10 0x21170214>;
 	qcom,spkr-sd-n-node = <&wsa_spkr_en1>;
 };
-
+*/
 &lito_snd {
 	qcom,model = "lito-qrd-snd-card";
 	qcom,audio-routing =
@@ -721,8 +721,10 @@
 		"VA SWR_MIC5", "DMIC6_OUTPUT",
 		"VA SWR_MIC6", "DMIC7_OUTPUT",
 		"VA SWR_MIC7", "DMIC8_OUTPUT";
-	qcom,wsa-max-devs = <1>;
-	qcom,wsa-devs = <&wsa881x_0212>, <&wsa881x_0214>;
+/* Disable WSA spekaer amp
+	qcom,wsa-max-devs = <1>;*/
+	qcom,wsa-max-devs = <0>;
+/*	qcom,wsa-devs = <&wsa881x_0212>, <&wsa881x_0214>;*/
 	qcom,wsa-aux-dev-prefix = "SpkrRight", "SpkrRight";
 	qcom,msm-mbhc-usbc-audio-supported = <1>;
 	qcom,msm-mbhc-hphl-swh = <0>;

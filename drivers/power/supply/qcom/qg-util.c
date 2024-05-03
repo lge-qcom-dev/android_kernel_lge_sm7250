@@ -279,6 +279,20 @@ static bool is_dc_available(struct qpnp_qg *chip)
 
 	return true;
 }
+#ifdef CONFIG_USE_WIRELESS_CHARGING
+bool is_wireless_available(struct qpnp_qg *chip)
+{
+	if (chip->wireless_psy)
+		return true;
+
+	chip->wireless_psy = power_supply_get_by_name("wireless");
+	if (!chip->wireless_psy)
+		return false;
+
+	return true;
+}
+
+#endif
 
 bool is_usb_present(struct qpnp_qg *chip)
 {
@@ -302,9 +316,27 @@ bool is_dc_present(struct qpnp_qg *chip)
 	return pval.intval ? true : false;
 }
 
+#ifdef CONFIG_USE_WIRELESS_CHARGING
+bool is_wireless_present(struct qpnp_qg *chip)
+{
+	union power_supply_propval pval = {0, };
+
+	if (is_wireless_available(chip))
+		power_supply_get_property(chip->wireless_psy,
+			POWER_SUPPLY_PROP_PRESENT, &pval);
+
+	return pval.intval ? true : false;
+}
+
+#endif
+
 bool is_input_present(struct qpnp_qg *chip)
 {
+#ifdef CONFIG_USE_WIRELESS_CHARGING
+	return is_usb_present(chip) || is_dc_present(chip) || is_wireless_present(chip);
+#else
 	return is_usb_present(chip) || is_dc_present(chip);
+#endif
 }
 
 bool is_parallel_available(struct qpnp_qg *chip)
@@ -411,6 +443,7 @@ int qg_get_battery_current(struct qpnp_qg *chip, int *ibat_ua)
 
 	last_ibat = sign_extend32(last_ibat, 15);
 	*ibat_ua = qg_iraw_to_ua(chip, last_ibat);
+	chip->ibat = *ibat_ua;
 
 release:
 	/* release */

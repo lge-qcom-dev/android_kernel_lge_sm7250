@@ -28,6 +28,10 @@
 #define CREATE_TRACE_POINTS
 #include "trace-rpmh.h"
 
+#ifdef CONFIG_LGE_HANDLE_PANIC_RPMH_TIMEOUT
+#include <soc/qcom/lge/lge_handle_panic.h>
+#endif
+
 #define RSC_DRV_IPC_LOG_SIZE		2
 
 #define RSC_DRV_TCS_OFFSET		672
@@ -743,6 +747,10 @@ void rpmh_rsc_debug(struct rsc_drv *drv, struct completion *compl)
 	 * has happened.
 	 * Crash and report.
 	 */
+#ifdef CONFIG_LGE_HANDLE_PANIC_RPMH_TIMEOUT
+	if(busy)
+		lge_set_rphm_timeout_panic();
+#endif
 	BUG_ON(busy);
 }
 

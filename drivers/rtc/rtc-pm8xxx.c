@@ -66,6 +66,10 @@ struct pm8xxx_rtc {
 	spinlock_t ctrl_reg_lock;
 };
 
+#ifdef CONFIG_LGE_RTC_START_YEAR
+static unsigned long rtc_offset_secs;
+#endif
+
 /*
  * Steps to write the RTC registers.
  * 1. Disable alarm if enabled.
@@ -88,6 +92,10 @@ static int pm8xxx_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return -EACCES;
 
 	rtc_tm_to_time(tm, &secs);
+
+#ifdef CONFIG_LGE_RTC_START_YEAR
+	secs -= rtc_offset_secs;
+#endif
 
 	dev_dbg(dev, "Seconds value to be written to RTC = %lu\n", secs);
 
@@ -211,6 +219,10 @@ static int pm8xxx_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	secs = value[0] | (value[1] << 8) | (value[2] << 16) |
 	       ((unsigned long)value[3] << 24);
 
+#ifdef CONFIG_LGE_RTC_START_YEAR
+	secs = rtc_offset_secs + secs;
+#endif
+
 	rtc_time_to_tm(secs, tm);
 
 	dev_dbg(dev, "secs = %lu, h:m:s == %d:%d:%d, d/m/y = %d/%d/%d\n",
@@ -229,6 +241,10 @@ static int pm8xxx_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	const struct pm8xxx_rtc_regs *regs = rtc_dd->regs;
 
 	rtc_tm_to_time(&alarm->time, &secs);
+
+#ifdef CONFIG_LGE_RTC_START_YEAR
+	secs -= rtc_offset_secs;
+#endif
 
 	for (i = 0; i < NUM_8_BIT_RTC_REGS; i++) {
 		value[i] = secs & 0xFF;
@@ -282,6 +298,10 @@ static int pm8xxx_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 
 	secs = value[0] | (value[1] << 8) | (value[2] << 16) |
 	       ((unsigned long)value[3] << 24);
+
+#ifdef CONFIG_LGE_RTC_START_YEAR
+	secs = rtc_offset_secs + secs;
+#endif
 
 	rtc_time_to_tm(secs, &alarm->time);
 
@@ -495,6 +515,10 @@ static int pm8xxx_rtc_probe(struct platform_device *pdev)
 	int rc;
 	struct pm8xxx_rtc *rtc_dd;
 	const struct of_device_id *match;
+
+#ifdef CONFIG_LGE_RTC_START_YEAR
+	rtc_offset_secs = mktime(CONFIG_LGE_RTC_START_YEAR, 1, 1, 0, 0, 0);
+#endif
 
 	match = of_match_node(pm8xxx_id_table, pdev->dev.of_node);
 	if (!match)

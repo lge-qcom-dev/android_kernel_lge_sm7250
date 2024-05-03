@@ -23,6 +23,9 @@
 #include <linux/interrupt.h>
 #include <linux/irqdesc.h>
 
+#ifdef CONFIG_PROC_FS
+#include <linux/proc_fs.h>
+#endif
 #include "power.h"
 
 #ifndef CONFIG_SUSPEND

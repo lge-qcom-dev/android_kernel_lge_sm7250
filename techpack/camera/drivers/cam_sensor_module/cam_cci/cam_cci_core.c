@@ -1853,6 +1853,12 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	struct cci_device *cci_dev = v4l2_get_subdevdata(sd);
 	enum cci_i2c_master_t master = MASTER_MAX;
 
+	/*QCT_PATCH S, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
+#if 1
+	int32_t trialCnt = 3;
+#endif
+	/*QCT_PATCH E, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
+
 	if (!cci_dev) {
 		CAM_ERR(CAM_CCI, "CCI_DEV IS NULL");
 		return -EINVAL;
@@ -1875,6 +1881,10 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	}
 	CAM_DBG(CAM_CCI, "master = %d, cmd = %d", master, cci_ctrl->cmd);
 
+#ifdef CONFIG_MACH_LGE
+    mutex_lock(&cci_dev->global_mutex);
+#endif
+
 	switch (cci_ctrl->cmd) {
 	case MSM_CCI_INIT:
 		mutex_lock(&cci_dev->init_mutex);
@@ -1895,7 +1905,17 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	case MSM_CCI_I2C_WRITE_SYNC:
 	case MSM_CCI_I2C_WRITE_ASYNC:
 	case MSM_CCI_I2C_WRITE_SYNC_BLOCK:
+		/*QCT_PATCH S, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
+#if 1
+		do{
+			   rc = cam_cci_write(sd, cci_ctrl);
+			   if(rc < 0)
+					CAM_ERR(CAM_CCI,"rc: %d trialCnt = %d \n", rc, trialCnt);
+			   trialCnt--;
+		   }while(rc < 0 && trialCnt > 0);
+#else
 		rc = cam_cci_write(sd, cci_ctrl);
+#endif
 		break;
 	case MSM_CCI_GPIO_WRITE:
 		break;
@@ -1908,6 +1928,8 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	}
 
 	cci_ctrl->status = rc;
-
+#ifdef CONFIG_MACH_LGE
+    mutex_unlock(&cci_dev->global_mutex);
+#endif
 	return rc;
 }

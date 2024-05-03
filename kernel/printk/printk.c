@@ -57,6 +57,9 @@
 #include "console_cmdline.h"
 #include "braille.h"
 #include "internal.h"
+#if defined(CONFIG_LEAVE_INITLOG) && defined(CONFIG_LGE_HANDLE_PANIC)
+#include <soc/qcom/lge/lge_handle_panic.h>
+#endif
 
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
@@ -83,6 +86,8 @@ EXPORT_SYMBOL(oops_in_progress);
 static DEFINE_SEMAPHORE(console_sem);
 struct console *console_drivers;
 EXPORT_SYMBOL_GPL(console_drivers);
+
+static size_t print_time(u64 ts, char *buf);
 
 #ifdef CONFIG_LOCKDEP
 static struct lockdep_map console_lock_dep_map = {
@@ -444,6 +449,10 @@ static u32 clear_idx;
 static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
 static char *log_buf = __log_buf;
 static u32 log_buf_len = __LOG_BUF_LEN;
+#if defined(CONFIG_LEAVE_INITLOG) && defined(CONFIG_LGE_HANDLE_PANIC)
+static char *log_buf_init;
+static bool block_overwrite;
+#endif
 
 /*
  * We cannot access per-CPU data (e.g. per-CPU flush irq_work) before
@@ -622,6 +631,13 @@ static int log_store(int facility, int level,
 	}
 
 	if (log_next_idx + size + sizeof(struct printk_log) > log_buf_len) {
+#if defined(CONFIG_LEAVE_INITLOG) && defined(CONFIG_LGE_HANDLE_PANIC)
+		if (lge_get_download_mode() && block_overwrite){
+			if (log_buf_init)
+				memcpy(log_buf_init, log_buf, log_buf_len);
+			block_overwrite = false;
+		}
+#endif
 		/*
 		 * This message + an additional empty header does not fit
 		 * at the end of the buffer. Add an empty header with len == 0
@@ -711,7 +727,6 @@ static ssize_t msg_print_ext_header(char *buf, size_t size,
 				    struct printk_log *msg, u64 seq)
 {
 	u64 ts_usec = msg->ts_nsec;
-
 	do_div(ts_usec, 1000);
 
 	return scnprintf(buf, size, "%u,%llu,%llu,%c;",
@@ -1110,7 +1125,6 @@ static void __init log_buf_add_cpu(void)
 	pr_info("log_buf_len total cpu_extra contributions: %d bytes\n",
 		cpu_extra);
 	pr_info("log_buf_len min size: %d bytes\n", __LOG_BUF_LEN);
-
 	log_buf_len_update(cpu_extra + __LOG_BUF_LEN);
 }
 #else /* !CONFIG_SMP */
@@ -1155,7 +1169,20 @@ void __init setup_log_buf(int early)
 		new_log_buf = memblock_virt_alloc_nopanic(new_log_buf_len,
 							  LOG_ALIGN);
 	}
-
+#if defined(CONFIG_LEAVE_INITLOG) && defined(CONFIG_LGE_HANDLE_PANIC)
+	if (lge_get_download_mode()){
+		if (early) {
+			log_buf_init =
+				memblock_virt_alloc(new_log_buf_len, LOG_ALIGN);
+		} else {
+			log_buf_init = memblock_virt_alloc_nopanic(new_log_buf_len,
+					LOG_ALIGN);
+			pr_info("log_buf_init : %lu bytes available\n",
+					new_log_buf_len);
+		}
+		block_overwrite = true;
+	}
+#endif
 	if (unlikely(!new_log_buf)) {
 		pr_err("log_buf_len: %lu bytes not available\n",
 			new_log_buf_len);
@@ -1261,7 +1288,6 @@ static size_t print_time(u64 ts, char *buf)
 		return 0;
 
 	rem_nsec = do_div(ts, 1000000000);
-
 	if (!buf)
 		return snprintf(NULL, 0, "[%5lu.000000] ", (unsigned long)ts);
 

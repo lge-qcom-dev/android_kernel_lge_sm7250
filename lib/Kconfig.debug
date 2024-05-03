@@ -17,6 +17,12 @@ config PRINTK_TIME
 	  The behavior is also controlled by the kernel command line
 	  parameter printk.time=1. See Documentation/admin-guide/kernel-parameters.rst
 
+config LEAVE_INITLOG
+	bool "Leave log_buf_init on memory"
+	depends on PRINTK && LGE_HANDLE_PANIC
+	help
+          Enable to leave init log on memory.
+
 config CONSOLE_LOGLEVEL_DEFAULT
 	int "Default console loglevel (1-15)"
 	range 1 15

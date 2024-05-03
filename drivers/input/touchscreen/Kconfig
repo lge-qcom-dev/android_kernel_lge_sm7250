@@ -11,6 +11,8 @@ menuconfig INPUT_TOUCHSCREEN
 
 if INPUT_TOUCHSCREEN
 
+source "drivers/input/touchscreen/lge/Kconfig"
+
 config TOUCHSCREEN_PROPERTIES
 	def_tristate INPUT
 	depends on INPUT
@@ -1355,5 +1357,11 @@ source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
 source "drivers/input/touchscreen/focaltech_touch/Kconfig"
 
 source "drivers/input/touchscreen/nt36xxx/Kconfig"
+config LGE_TOUCH_CORE_SUB
+	bool "LGE TOUCH CORE SUB"
+	help
+	  If sub touch IC with another i2c line is existed, say Y
+
+source "drivers/input/touchscreen/lge_sub/Kconfig"
 
 endif

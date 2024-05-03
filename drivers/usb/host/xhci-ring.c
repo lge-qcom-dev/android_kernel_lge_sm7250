@@ -1884,6 +1884,10 @@ static void xhci_cleanup_halted_endpoint(struct xhci_hcd *xhci,
 		ep->ep_state |= EP_HARD_CLEAR_TOGGLE;
 		xhci_cleanup_stalled_ring(xhci, ep_index, stream_id, td);
 	}
+#ifdef CONFIG_LGE_USB
+	if (reset_type == EP_SOFT_RESET)
+		xhci_cleanup_stalled_ring(xhci, ep_index, stream_id, td);
+#endif
 	xhci_ring_cmd_db(xhci);
 }
 
@@ -1907,6 +1911,9 @@ static int xhci_requires_manual_halt_cleanup(struct xhci_hcd *xhci,
 		 * endpoint anyway.  Check if a babble halted the
 		 * endpoint.
 		 */
+#ifdef CONFIG_LGE_USB
+		pr_debug("%s: BABBLE or TRANSACTION_ERROR occurs(code:%d)\n", __func__, trb_comp_code);
+#endif
 		if (GET_EP_CTX_STATE(ep_ctx) == EP_STATE_HALTED)
 			return 1;
 
@@ -2008,8 +2015,20 @@ static int finish_td(struct xhci_hcd *xhci, struct xhci_td *td,
 		 * dequeue pointer past the TD.
 		 * The class driver clears the device side halt later.
 		 */
+#ifdef CONFIG_LGE_USB
+		enum xhci_ep_reset_type reset_type;
+		if (trb_comp_code == COMP_BABBLE_DETECTED_ERROR ||
+				trb_comp_code == COMP_USB_TRANSACTION_ERROR) {
+			reset_type = EP_SOFT_RESET;
+		} else {
+			reset_type = EP_HARD_RESET;
+		}
+		xhci_cleanup_halted_endpoint(xhci, slot_id, ep_index,
+					ep_ring->stream_id, td, reset_type);
+#else
 		xhci_cleanup_halted_endpoint(xhci, slot_id, ep_index,
 					ep_ring->stream_id, td, EP_HARD_RESET);
+#endif
 	} else {
 		/* Update ring dequeue pointer */
 		while (ep_ring->dequeue != td->last_trb)

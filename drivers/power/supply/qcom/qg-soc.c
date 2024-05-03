@@ -378,6 +378,9 @@ int qg_adjust_sys_soc(struct qpnp_qg *chip)
 {
 	int soc, vbat_uv, rc;
 	int vcutoff_uv = chip->dt.vbatt_cutoff_mv * 1000;
+#ifdef CONFIG_LGE_PM
+	int vfloat_uv = chip->bp.float_volt_uv;
+#endif
 
 	chip->sys_soc = CAP(QG_MIN_SOC, QG_MAX_SOC, chip->sys_soc);
 
@@ -405,10 +408,20 @@ int qg_adjust_sys_soc(struct qpnp_qg *chip)
 	if (soc == 0) {
 		/* Hold SOC to 1% if we have not dropped below cutoff */
 		rc = qg_get_vbat_avg(chip, &vbat_uv);
+#ifdef CONFIG_LGE_PM
+		if (!rc && ((vfloat_uv + VBAT_LOW_HYST_UV) >= vbat_uv)
+				&& (vbat_uv >= (vcutoff_uv + VBAT_LOW_HYST_UV))) {
+#else
 		if (!rc && (vbat_uv >= (vcutoff_uv + VBAT_LOW_HYST_UV))) {
+#endif
 			soc = 1;
-			qg_dbg(chip, QG_DEBUG_SOC, "vbat_uv=%duV holding SOC to 1%\n",
+#ifdef CONFIG_LGE_PM
+			qg_dbg(chip, QG_DEBUG_SOC, "vbat_uv=%d uV holding SOC to 1 \n",
 						vbat_uv);
+#else
+			qg_dbg(chip, QG_DEBUG_SOC, "vbat_uv=%d uV holding SOC to 1%\n",
+						vbat_uv);
+#endif
 		}
 	}
 

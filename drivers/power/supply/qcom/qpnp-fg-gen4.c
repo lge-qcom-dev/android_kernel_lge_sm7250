@@ -21,7 +21,9 @@
 #include "fg-core.h"
 #include "fg-reg.h"
 #include "fg-alg.h"
-
+#ifdef CONFIG_LGE_PM
+#include <soc/qcom/lge/board_lge.h>
+#endif
 #define FG_GEN4_DEV_NAME	"qcom,fg-gen4"
 #define TTF_AWAKE_VOTER		"fg_ttf_awake"
 
@@ -1971,7 +1973,14 @@ static int fg_gen4_get_batt_profile(struct fg_dev *fg)
 	const char *data;
 	int rc, len, avail_age_level = 0;
 
+#ifdef CONFIG_LGE_PM
+	if(HW_SKU_NA_CDMA_VZW == lge_get_sku_carrier())
+		batt_node = of_find_node_by_name(node, "qcom,vzw-battery-data");
+	else
+		batt_node = of_find_node_by_name(node, "qcom,battery-data");
+#else
 	batt_node = of_find_node_by_name(node, "qcom,battery-data");
+#endif
 	if (!batt_node) {
 		pr_err("Batterydata not available\n");
 		return -ENXIO;

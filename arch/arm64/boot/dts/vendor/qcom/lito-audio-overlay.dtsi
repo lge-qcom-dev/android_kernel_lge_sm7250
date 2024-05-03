@@ -5,7 +5,8 @@
 #include "lito-lpi.dtsi"
 
 &bolero {
-	qcom,num-macros = <4>;
+/*	qcom,num-macros = <4>; Disable WSA speaker amp*/
+	qcom,num-macros = <3>;
 	bolero-clk-rsc-mngr {
 		compatible = "qcom,bolero-clk-rsc-mngr";
 		qcom,fs-gen-sequence = <0x3000 0x1>,
@@ -103,7 +104,7 @@
 			};
 		};
 	};
-
+/* Disable WSA speaker amp
 	wsa_macro: wsa-macro@3240000 {
 		compatible = "qcom,wsa-macro";
 		reg = <0x3240000 0x0>;
@@ -164,6 +165,7 @@
 		};
 
 	};
+*/
 
 	va_macro: va-macro@3370000 {
 		compatible = "qcom,va-macro";
@@ -318,15 +320,18 @@
 		"VA SWR_MIC7", "DMIC8_OUTPUT";
 	qcom,msm-mbhc-hphl-swh = <1>;
 	qcom,msm-mbhc-gnd-swh = <1>;
+/*
 	qcom,cdc-dmic01-gpios = <&cdc_dmic01_gpios>;
 	qcom,cdc-dmic23-gpios = <&cdc_dmic23_gpios>;
 	qcom,cdc-dmic45-gpios = <&cdc_dmic45_gpios>;
+*/
 	asoc-codec  = <&stub_codec>, <&bolero>, <&ext_disp_audio_codec>;
 	asoc-codec-names = "msm-stub-codec.1", "bolero_codec",
 			   "msm-ext-disp-audio-codec-rx";
-	qcom,wsa-max-devs = <2>;
-	qcom,wsa-devs = <&wsa881x_0211>, <&wsa881x_0212>,
-			<&wsa881x_0213>, <&wsa881x_0214>;
+/*	qcom,wsa-max-devs = <2>; Disble WSA Speaker amp*/
+	qcom,wsa-max-devs = <0>;
+/*	qcom,wsa-devs = <&wsa881x_0211>, <&wsa881x_0212>,
+			<&wsa881x_0213>, <&wsa881x_0214>;*/
 	qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrRight",
 				  "SpkrLeft", "SpkrRight";
 	qcom,codec-max-aux-devs = <1>;
@@ -362,7 +367,7 @@
 		qcom,lpi-gpios;
 		qcom,tlmm-gpio = <127 128>;
 	};
-
+/* Disable WSA speaker amp
 	wsa_swr_gpios: wsa_swr_clk_data_pinctrl {
 		compatible = "qcom,msm-cdc-pinctrl";
 		pinctrl-names = "aud_active", "aud_sleep";
@@ -370,7 +375,7 @@
 		pinctrl-1 = <&wsa_swr_clk_sleep &wsa_swr_data_sleep>;
 		qcom,lpi-gpios;
 	};
-
+*/
 	rx_swr_gpios: rx_swr_clk_data_pinctrl {
 		compatible = "qcom,msm-cdc-pinctrl";
 		pinctrl-names = "aud_active", "aud_sleep";
@@ -385,15 +390,16 @@
 		compatible = "qcom,msm-cdc-pinctrl";
 		pinctrl-names = "aud_active", "aud_sleep";
 		pinctrl-0 = <&tx_swr_clk_active &tx_swr_data1_active
-			    &tx_swr_data2_active &tx_swr_data3_active>;
+			    &tx_swr_data2_active /*&tx_swr_data3_active */>;
 		pinctrl-1 = <&tx_swr_clk_sleep &tx_swr_data1_sleep
-			    &tx_swr_data2_sleep &tx_swr_data3_sleep>;
+			    &tx_swr_data2_sleep /*&tx_swr_data3_sleep*/>;
 		qcom,lpi-gpios;
 		qcom,tlmm-gpio = <115 116 117>;
 	};
 };
 
 &soc {
+/* Disable WSA speaker amp
 	wsa_spkr_en1: wsa_spkr_en1_pinctrl {
 		compatible = "qcom,msm-cdc-pinctrl";
 		pinctrl-names = "aud_active", "aud_sleep";
@@ -407,7 +413,7 @@
 		pinctrl-0 = <&spkr_2_sd_n_active>;
 		pinctrl-1 = <&spkr_2_sd_n_sleep>;
 	};
-
+*/
 	wcd938x_rst_gpio: msm_cdc_pinctrl@57 {
 		compatible = "qcom,msm-cdc-pinctrl";
 		pinctrl-names = "aud_active", "aud_sleep";

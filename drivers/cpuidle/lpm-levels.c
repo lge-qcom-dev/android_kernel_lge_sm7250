@@ -48,6 +48,10 @@
 #define PSCI_POWER_STATE(reset) (reset << 30)
 #define PSCI_AFFINITY_LEVEL(lvl) ((lvl & 0x3) << 24)
 
+#ifdef CONFIG_LGE_PM
+void gpio_debug_print_enabled(void);
+#endif
+
 enum {
 	MSM_LPM_LVL_DBG_SUSPEND_LIMITS = BIT(0),
 	MSM_LPM_LVL_DBG_IDLE_LIMITS = BIT(1),
@@ -1121,6 +1125,20 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 	}
 
 	if (level->notify_rpm) {
+		/*
+		 * Print the clocks and regulators which are enabled during
+		 * system suspend.  This debug information is useful to know
+		 * which resources are enabled and preventing the system level
+		 * LPMs (XO and Vmin).
+		 */
+		if (!from_idle) {
+            clock_debug_print_enabled();
+			regulator_debug_print_enabled();
+#ifdef CONFIG_LGE_PM
+			gpio_debug_print_enabled();
+#endif
+		}
+
 		cpu = get_next_online_cpu(from_idle);
 		cpumask_copy(&cpumask, cpumask_of(cpu));
 		clear_predict_history();

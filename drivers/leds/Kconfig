@@ -798,6 +798,13 @@ config LEDS_QPNP_FLASH_V2
           flash LED target current for several independent channels.  It also
           supports various over current and over temperature mitigation features.
 
+config LEDS_AW8624_HAPTICS
+	tristate "Vibrator-Haptics support for AW8624"
+	depends on LEDS_CLASS
+	help
+	  This option enables device driver support for the vibrator-haptics
+	  The vibrator-haptics peripheral is capable of driving LRA vibrators.
+
 config LEDS_QPNP_VIBRATOR_LDO
 	tristate "Vibrator-LDO support for QPNP PMIC"
 	depends on LEDS_CLASS && MFD_SPMI_PMIC

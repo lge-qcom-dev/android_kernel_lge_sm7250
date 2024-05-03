@@ -1185,6 +1185,14 @@ static void msm_lastclose(struct drm_device *dev)
 	if (!kms || (kms && kms->funcs && kms->funcs->check_for_splash
 		&& kms->funcs->check_for_splash(kms, NULL)))
 		return;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	/* To prevent device from shutdown before device is probed */
+	if (kms && kms->funcs && kms->funcs->check_for_simulation_panel
+		&& kms->funcs->check_for_simulation_panel(kms)) {
+		pr_err("[Display][%s] To avoid crash with no panel \n", __func__);
+		return;
+	}
+#endif
 
 	/*
 	 * clean up vblank disable immediately as this is the last close.

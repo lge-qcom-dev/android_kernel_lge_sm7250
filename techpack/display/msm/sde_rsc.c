@@ -451,7 +451,7 @@ static int sde_rsc_resource_enable(struct sde_rsc_priv *rsc)
 	reg_bus_hdl = rsc->phandle.reg_bus_hdl;
 	if (reg_bus_hdl) {
 		rc = msm_bus_scale_client_update_request(reg_bus_hdl,
-				VOTE_INDEX_LOW);
+				VOTE_INDEX_MEDIUM);
 		if (rc) {
 			pr_err("failed to set reg bus vote rc=%d\n", rc);
 			goto reg_bus_hdl_err;

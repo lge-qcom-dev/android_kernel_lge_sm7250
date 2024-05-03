@@ -126,6 +126,9 @@ struct msm_kms_funcs {
 	int (*get_mixer_count)(const struct msm_kms *kms,
 			const struct drm_display_mode *mode,
 			const struct msm_resource_caps_info *res, u32 *num_lm);
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	bool (*check_for_simulation_panel)(struct msm_kms *kms);
+#endif
 };
 
 struct msm_kms {

@@ -511,6 +511,10 @@ static void msm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 #ifdef CONFIG_DEBUG_FS
 #include <linux/seq_file.h>
 
+#ifdef CONFIG_LGE_PM
+extern bool msm_gpio_check_access(int gpio);
+#endif
+
 static void msm_gpio_dbg_show_one(struct seq_file *s,
 				  struct pinctrl_dev *pctldev,
 				  struct gpio_chip *chip,
@@ -566,13 +570,20 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 	seq_puts(s, "\n");
 }
 
+
 static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 {
 	unsigned gpio = chip->base;
 	unsigned i;
 
+#ifdef CONFIG_LGE_PM
+	for (i = 0; i < chip->ngpio; i++, gpio++)
+		if(msm_gpio_check_access(gpio - chip->base) == true)
+			msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
+#else
 	for (i = 0; i < chip->ngpio; i++, gpio++)
 		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
+#endif
 }
 
 #else
@@ -1561,6 +1572,13 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	struct resource *res;
 	int ret, i, num_irq, irq;
 
+#ifdef CONFIG_MACH_LITO_WINGLM
+	int idx, output_gpios[] = {3, 10, 11, 22, 24, 30, 31, 32, 36, 38, 43,
+		47, 49, 50, 52, 53, 55, 56, 57, 62, 64, 65, 66, 67, 72, 74,
+		84, 86, 87, 90, 97, 100, 103, 107, 109, 110, 112, 113, 115,
+		117, 121, 122, 127, 128, 132, 135, 133, 137, 141, 142, 144,
+		145};
+#endif
 	msm_pinctrl_data = pctrl = devm_kzalloc(&pdev->dev,
 				sizeof(*pctrl), GFP_KERNEL);
 	if (!pctrl) {
@@ -1620,6 +1638,15 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 
 	register_syscore_ops(&msm_pinctrl_pm_ops);
 	dev_dbg(&pdev->dev, "Probed Qualcomm pinctrl driver\n");
+
+#ifdef CONFIG_MACH_LITO_WINGLM
+	for (idx = 0; idx < sizeof(output_gpios) / sizeof(int); idx++) {
+		dev_dbg(&pdev->dev, "disable wake-up function of output gpio: %d\n", output_gpios[idx]);
+		msm_gpio_mpm_wake_set(output_gpios[idx], false);
+	}
+	dev_info(&pdev->dev, "disable wake-up function for output gpio, \
+		total output_gpios number = %d\n", sizeof(output_gpios) / sizeof(int));
+#endif
 
 	return 0;
 }

@@ -1008,7 +1008,6 @@ out:
 		cb_req->result = OBJECT_ERROR_DEFUNCT;
 		pr_err("server invalid, res: %d\n", cb_req->result);
 	} else {
-		pr_debug("%s wait_event interrupted ret = %d\n", __func__, ret);
 		cb_req->result = OBJECT_ERROR_ABORT;
 	}
 	--cb_reqs_inflight;

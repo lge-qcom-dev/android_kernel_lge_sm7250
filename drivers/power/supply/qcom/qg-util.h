@@ -15,6 +15,10 @@ int get_sample_count(struct qpnp_qg *chip, u32 *sample_count);
 int get_sample_interval(struct qpnp_qg *chip, u32 *sample_interval);
 int get_fifo_done_time(struct qpnp_qg *chip, bool rt, int *time_ms);
 int get_rtc_time(unsigned long *rtc_time);
+#ifdef CONFIG_USE_WIRELESS_CHARGING
+bool is_wireless_available(struct qpnp_qg *chip);
+bool is_wireless_present(struct qpnp_qg *chip);
+#endif
 bool is_usb_present(struct qpnp_qg *chip);
 bool is_dc_present(struct qpnp_qg *chip);
 bool is_input_present(struct qpnp_qg *chip);

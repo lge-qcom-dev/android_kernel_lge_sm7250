@@ -13,6 +13,9 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/log2.h>
+#ifdef CONFIG_LGE_USB
+#include <linux/of_gpio.h>
+#endif
 #include <linux/qpnp/qpnp-revid.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/of_regulator.h>
@@ -23,6 +26,45 @@
 #include "smb5-reg.h"
 #include "smb5-lib.h"
 #include "schgm-flash.h"
+#if defined(CONFIG_LGE_USB_MOISTURE_DETECTION) || defined(CONFIG_MACH_LITO_ACELM)
+#include <soc/qcom/lge/board_lge.h>
+#endif
+
+#ifdef CONFIG_MACH_LITO_ACELM
+static bool lge_disable_smb1390(void)
+{
+	if ((lge_get_sku_carrier() == HW_SKU_KR) &&
+		(lge_get_board_rev_no() > HW_REV_C ) ){
+		return true;
+	}
+
+	if ((lge_get_sku_carrier() == HW_SKU_GLOBAL     ||
+		 lge_get_sku_carrier() == HW_SKU_GLOBAL_MEA ||
+		 lge_get_sku_carrier() == HW_SKU_AU_OPEN    ||
+		 lge_get_sku_carrier() == HW_SKU_AU_TEL     ||
+		 lge_get_sku_carrier() == HW_SKU_GLOBAL_CERT) &&
+		(lge_get_board_rev_no() < HW_REV_1_0) ){
+		return true;
+	}
+
+	if (lge_get_laop_operator() == OP_OPEN_KR ||
+		lge_get_laop_operator() == OP_SKT_KR  ||
+		lge_get_laop_operator() == OP_KT_KR   ||
+		lge_get_laop_operator() == OP_LGU_KR  ){
+		return true;
+	}
+
+	/*
+	if (lge_get_sku_carrier() == HW_SKU_KR     ||
+		lge_get_sku_carrier() == HW_SKU_KR_LGU ||
+		lge_get_sku_carrier() == HW_SKU_KR_SKT ||
+		lge_get_sku_carrier() == HW_SKU_KR_KT  ){
+		return true;
+	}
+	*/
+	return false;
+}
+#endif
 
 static struct smb_params smb5_pmi632_params = {
 	.fcc			= {
@@ -227,7 +269,11 @@ struct smb5 {
 	struct smb_dt_props	dt;
 };
 
+#ifdef CONFIG_LGE_PM
+static int __debug_mask = PR_INTERRUPT | PR_PARALLEL | PR_MISC | PR_OTG | PR_WLS;
+#else
 static int __debug_mask;
+#endif
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
@@ -292,6 +338,88 @@ enum {
 	CONN_THERM,
 	SMB_THERM,
 };
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+static int __check_factory_lpd = 0;
+module_param_named(
+	check_factory_lpd, __check_factory_lpd, int, 0600
+);
+
+static int __lpd_disabled;
+static int __lpd_floating = 0;
+static int set_lpd_disabled(const char *val, const struct kernel_param *kp)
+{
+	struct kernel_param boolkp = *kp;
+	bool v = 0;
+
+	struct power_supply *usb_psy;
+	union power_supply_propval pval;
+	int ret;
+
+	boolkp.arg = &v;
+	ret = param_set_bool(val, &boolkp);
+	if (ret)
+		return ret;
+
+	if (lge_get_factory_boot())
+		 __check_factory_lpd = !v;
+
+	if (v)
+		__lpd_floating = 0;
+
+	usb_psy = power_supply_get_by_name("usb");
+	if (!usb_psy) {
+		pr_err("%s: usb_psy is NULL\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	pval.intval = !v;
+	ret = power_supply_set_property(usb_psy,
+			POWER_SUPPLY_PROP_MOISTURE_DETECTION_EN,
+			&pval);
+	if (ret) {
+		pr_err("%s: Unable to set MOISTURE_DETECTION_EN\n", __func__);
+		goto put_psy;
+	}
+
+	*(int *)kp->arg = v;
+
+put_psy:
+	power_supply_put(usb_psy);
+	return ret;
+}
+
+static struct kernel_param_ops lpd_diabled_param_ops = {
+	.set = set_lpd_disabled,
+	.get = param_get_int,
+};
+
+module_param_cb(lpd_disabled, &lpd_diabled_param_ops, &__lpd_disabled, 0600);
+
+static int __lpd_ux;
+module_param_named(
+	lpd_ux, __lpd_ux, int, 0600
+);
+
+static int __lpd_dpdm_disable = 0;
+module_param_named(
+	lpd_dpdm_disable, __lpd_dpdm_disable, int, 0600
+);
+
+static int __lpd_apsd_disable = 0;
+module_param_named(
+	lpd_apsd_disable, __lpd_apsd_disable, int, 0600
+);
+
+module_param_named(
+	lpd_floating, __lpd_floating, int, 0600
+);
+
+static int __lpd_threshold = RSBU_K_300K_UV;
+module_param_named(
+	lpd_threshold, __lpd_threshold, int, 0600
+);
+
+#endif
 
 static const struct clamp_config clamp_levels[] = {
 	{ {0x11C6, 0x11F9, 0x13F1}, {0x60, 0x2E, 0x90} },
@@ -357,7 +485,11 @@ static int smb5_chg_config_init(struct smb5 *chip)
 		chg->name = "pmi632_charger";
 		/* PMI632 does not support PD */
 		chg->pd_not_supported = true;
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+		*chg->lge_lpd_disabled = true;
+#else
 		chg->lpd_disabled = true;
+#endif
 		if (pmic_rev_id->rev4 >= 2)
 			chg->uusb_moisture_protection_enabled = true;
 		chg->hw_max_icl_ua =
@@ -446,6 +578,12 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 
 	of_property_read_u32(node, "qcom,sec-charger-config",
 					&chip->dt.sec_charger_config);
+
+#ifdef CONFIG_MACH_LITO_ACELM
+	if (lge_disable_smb1390() == true) {
+		chip->dt.sec_charger_config = POWER_SUPPLY_CHARGER_SEC_NONE;
+	}
+#endif
 	chg->sec_cp_present =
 		chip->dt.sec_charger_config == POWER_SUPPLY_CHARGER_SEC_CP ||
 		chip->dt.sec_charger_config == POWER_SUPPLY_CHARGER_SEC_CP_PL;
@@ -578,6 +716,9 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 	chg->smb_pull_up = -EINVAL;
 	of_property_read_u32(node, "qcom,smb-internal-pull-kohm",
 					&chg->smb_pull_up);
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	__lpd_disabled = of_property_read_bool(node, "qcom,lpd-disable");
+#endif
 
 	chip->dt.adc_based_aicl = of_property_read_bool(node,
 					"qcom,adc-based-aicl");
@@ -884,6 +1025,11 @@ static enum power_supply_property smb5_usb_props[] = {
 	POWER_SUPPLY_PROP_MOISTURE_DETECTED,
 	POWER_SUPPLY_PROP_HVDCP_OPTI_ALLOWED,
 	POWER_SUPPLY_PROP_QC_OPTI_DISABLE,
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	POWER_SUPPLY_PROP_MOISTURE_DETECTION_EN,
+	POWER_SUPPLY_PROP_MOISTURE_DETECTION_UX,
+	POWER_SUPPLY_PROP_MOISTURE_DETECTION_USB,
+#endif
 	POWER_SUPPLY_PROP_VOLTAGE_VPH,
 	POWER_SUPPLY_PROP_THERM_ICL_LIMIT,
 	POWER_SUPPLY_PROP_SKIN_HEALTH,
@@ -1009,6 +1155,17 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_SMB_EN_REASON:
 		val->intval = chg->cp_reason;
 		break;
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTION_EN:
+		val->intval = !(*chg->lge_lpd_disabled);
+		break;
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTION_UX:
+		val->intval = *chg->lpd_ux;
+		break;
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTION_USB:
+		val->intval = (*chg->lpd_dpdm_disable) && (*chg->lpd_apsd_disable);
+		break;
+#endif
 	case POWER_SUPPLY_PROP_MOISTURE_DETECTED:
 		val->intval = chg->moisture_present;
 		break;
@@ -1142,6 +1299,50 @@ static int smb5_usb_set_prop(struct power_supply *psy,
 		else
 			rc = -EINVAL;
 		break;
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTION_EN:
+		*chg->lge_lpd_disabled = !val->intval;
+		if (*chg->lge_lpd_disabled) {
+			if (chg->lpd_reason == LPD_MOISTURE_DETECTED) {
+				chg->lpd_reason = LPD_NONE;
+				smblib_lpd_recheck_timer_work(&chg->lpd_recheck_work);
+			}
+
+			/* Disable moisture detection */
+			rc = smblib_masked_write(chg,
+					TYPE_C_INTERRUPT_EN_CFG_2_REG,
+					TYPEC_WATER_DETECTION_INT_EN_BIT, 0);
+			if (rc < 0) {
+				dev_err(chg->dev, "Couldn't disable moisture detection interrupt rc=%d\n",
+					rc);
+				return rc;
+			}
+			dev_info(chg->dev, "Disable moisture detection\n");
+		} else {
+			/* Enable moisture detection */
+			rc = smblib_masked_write(chg,
+					TYPE_C_INTERRUPT_EN_CFG_2_REG,
+					TYPEC_WATER_DETECTION_INT_EN_BIT,
+					TYPEC_WATER_DETECTION_INT_EN_BIT);
+			if (rc < 0) {
+				dev_err(chg->dev, "Couldn't enable moisture detection interrupt rc=%d\n",
+					   rc);
+				return rc;
+			}
+			dev_info(chg->dev, "Enable moisture detection\n");
+		}
+		break;
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTION_UX:
+		*chg->lpd_ux = val->intval;
+		break;
+
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTION_USB:
+		*chg->lpd_dpdm_disable = *chg->lpd_apsd_disable = !(val->intval);
+		break;
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTED:
+		rc = smblib_set_prop_moisture_detected(chg, val);
+		break;
+#endif
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_LIMIT:
 		smblib_set_prop_usb_voltage_max_limit(chg, val);
 		break;
@@ -1172,6 +1373,9 @@ static int smb5_usb_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_LIMIT:
 	case POWER_SUPPLY_PROP_ADAPTER_CC_MODE:
 	case POWER_SUPPLY_PROP_APSD_RERUN:
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	case POWER_SUPPLY_PROP_MOISTURE_DETECTED:
+#endif
 		return 1;
 	default:
 		break;
@@ -1197,9 +1401,24 @@ static int smb5_init_usb_psy(struct smb5 *chip)
 
 	usb_cfg.drv_data = chip;
 	usb_cfg.of_node = chg->dev->of_node;
+#ifdef CONFIG_LGE_PM
+	usb_psy_desc_extension.name = usb_psy_desc.name;
+	usb_psy_desc_extension.type = usb_psy_desc.type;
+
+	usb_psy_desc_extension.properties		= extension_usb_properties();
+	usb_psy_desc_extension.num_properties	= extension_usb_num_properties();
+	usb_psy_desc_extension.get_property		= extension_usb_get_property;
+	usb_psy_desc_extension.set_property		= extension_usb_set_property;
+	usb_psy_desc_extension.property_is_writeable	= extension_usb_property_is_writeable;
+
+	chg->usb_psy = devm_power_supply_register(chg->dev,
+						  &usb_psy_desc_extension,
+						  &usb_cfg);
+#else
 	chg->usb_psy = devm_power_supply_register(chg->dev,
 						  &usb_psy_desc,
 						  &usb_cfg);
+#endif
 	if (IS_ERR(chg->usb_psy)) {
 		pr_err("Couldn't register USB power supply\n");
 		return PTR_ERR(chg->usb_psy);
@@ -1295,9 +1514,24 @@ static int smb5_init_usb_port_psy(struct smb5 *chip)
 
 	usb_port_cfg.drv_data = chip;
 	usb_port_cfg.of_node = chg->dev->of_node;
+#ifdef CONFIG_LGE_PM
+	usb_port_psy_desc_extension.name = usb_port_psy_desc.name;
+	usb_port_psy_desc_extension.type = usb_port_psy_desc.type;
+
+	usb_port_psy_desc_extension.properties = extension_usb_port_properties();
+	usb_port_psy_desc_extension.num_properties = extension_usb_port_num_properties();
+	usb_port_psy_desc_extension.get_property = extension_usb_port_get_property;
+	usb_port_psy_desc_extension.set_property = usb_port_psy_desc.set_property;
+	usb_port_psy_desc_extension.property_is_writeable = usb_port_psy_desc.property_is_writeable;
+
+	chg->usb_port_psy = devm_power_supply_register(chg->dev,
+						  &usb_port_psy_desc_extension,
+						  &usb_port_cfg);
+#else
 	chg->usb_port_psy = devm_power_supply_register(chg->dev,
 						  &usb_port_psy_desc,
 						  &usb_port_cfg);
+#endif
 	if (IS_ERR(chg->usb_port_psy)) {
 		pr_err("Couldn't register USB pc_port power supply\n");
 		return PTR_ERR(chg->usb_port_psy);
@@ -1549,9 +1783,24 @@ static int smb5_init_usb_main_psy(struct smb5 *chip)
 
 	usb_main_cfg.drv_data = chip;
 	usb_main_cfg.of_node = chg->dev->of_node;
+#ifdef CONFIG_LGE_PM
+	usb_main_psy_desc_extension.name = usb_main_psy_desc.name;
+	usb_main_psy_desc_extension.type = usb_main_psy_desc.type;
+
+	usb_main_psy_desc_extension.properties = usb_main_psy_desc.properties;
+	usb_main_psy_desc_extension.num_properties = usb_main_psy_desc.num_properties;
+	usb_main_psy_desc_extension.get_property = extension_usb_main_get_property;
+	usb_main_psy_desc_extension.set_property = extension_usb_main_set_property;
+	usb_main_psy_desc_extension.property_is_writeable = usb_main_psy_desc.property_is_writeable;
+
+	chg->usb_main_psy = devm_power_supply_register(chg->dev,
+						  &usb_main_psy_desc_extension,
+						  &usb_main_cfg);
+#else
 	chg->usb_main_psy = devm_power_supply_register(chg->dev,
 						  &usb_main_psy_desc,
 						  &usb_main_cfg);
+#endif
 	if (IS_ERR(chg->usb_main_psy)) {
 		pr_err("Couldn't register USB main power supply\n");
 		return PTR_ERR(chg->usb_main_psy);
@@ -1571,7 +1820,9 @@ static enum power_supply_property smb5_dc_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+#ifndef CONFIG_LGE_PM
 	POWER_SUPPLY_PROP_INPUT_VOLTAGE_REGULATION,
+#endif
 	POWER_SUPPLY_PROP_REAL_TYPE,
 	POWER_SUPPLY_PROP_DC_RESET,
 	POWER_SUPPLY_PROP_AICL_DONE,
@@ -1686,9 +1937,24 @@ static int smb5_init_dc_psy(struct smb5 *chip)
 
 	dc_cfg.drv_data = chip;
 	dc_cfg.of_node = chg->dev->of_node;
+#ifdef CONFIG_LGE_PM
+	dc_psy_desc_extension.name = dc_psy_desc.name;
+	dc_psy_desc_extension.type = dc_psy_desc.type;
+
+	dc_psy_desc_extension.properties = extension_dc_properties();
+	dc_psy_desc_extension.num_properties = extension_dc_num_properties();
+	dc_psy_desc_extension.get_property = extension_dc_get_property;
+	dc_psy_desc_extension.set_property = extension_dc_set_property;
+	dc_psy_desc_extension.property_is_writeable = dc_psy_desc.property_is_writeable;
+
+	chg->dc_psy = devm_power_supply_register(chg->dev,
+						  &dc_psy_desc_extension,
+						  &dc_cfg);
+#else
 	chg->dc_psy = devm_power_supply_register(chg->dev,
 						  &dc_psy_desc,
 						  &dc_cfg);
+#endif
 	if (IS_ERR(chg->dc_psy)) {
 		pr_err("Couldn't register USB power supply\n");
 		return PTR_ERR(chg->dc_psy);
@@ -1793,11 +2059,16 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, val);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+#ifdef CONFIG_LGE_PM
+		val->intval = get_client_vote(chg->fv_votable,
+					      BATT_PROFILE_VOTER);
+#else
 		val->intval = get_client_vote(chg->fv_votable,
 					      QNOVO_VOTER);
 		if (val->intval < 0)
 			val->intval = get_client_vote(chg->fv_votable,
 						      BATT_PROFILE_VOTER);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_QNOVO:
 		val->intval = get_client_vote_locked(chg->fv_votable,
@@ -1931,6 +2202,10 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 		vote(chg->fv_votable, BATT_PROFILE_VOTER, true, val->intval);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_QNOVO:
+#ifdef CONFIG_LGE_PM
+		vote(chg->fv_votable, QNOVO_VOTER, (val->intval >= 0),
+				val->intval);
+#else
 		if (val->intval == -EINVAL) {
 			vote(chg->fv_votable, BATT_PROFILE_VOTER, true,
 					chg->batt_profile_fv_uv);
@@ -1939,6 +2214,7 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 			vote(chg->fv_votable, QNOVO_VOTER, true, val->intval);
 			vote(chg->fv_votable, BATT_PROFILE_VOTER, false, 0);
 		}
+#endif
 		break;
 	case POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED:
 		chg->step_chg_enabled = !!val->intval;
@@ -2044,9 +2320,24 @@ static int smb5_init_batt_psy(struct smb5 *chip)
 
 	batt_cfg.drv_data = chg;
 	batt_cfg.of_node = chg->dev->of_node;
+#ifdef CONFIG_LGE_PM
+	batt_psy_desc_extension.name = batt_psy_desc.name;
+	batt_psy_desc_extension.type = batt_psy_desc.type;
+
+	batt_psy_desc_extension.properties = extension_battery_properties();
+	batt_psy_desc_extension.num_properties = extension_battery_num_properties();
+	batt_psy_desc_extension.get_property = extension_battery_get_property;
+	batt_psy_desc_extension.set_property = extension_battery_set_property;
+	batt_psy_desc_extension.property_is_writeable = extension_battery_property_is_writeable;
+
+	chg->batt_psy = devm_power_supply_register(chg->dev,
+						   &batt_psy_desc_extension,
+						   &batt_cfg);
+#else
 	chg->batt_psy = devm_power_supply_register(chg->dev,
 					   &batt_psy_desc,
 					   &batt_cfg);
+#endif
 	if (IS_ERR(chg->batt_psy)) {
 		pr_err("Couldn't register battery power supply\n");
 		return PTR_ERR(chg->batt_psy);
@@ -2060,8 +2351,13 @@ static int smb5_init_batt_psy(struct smb5 *chip)
  ******************************/
 
 static struct regulator_ops smb5_vbus_reg_ops = {
+#ifdef CONFIG_LGE_PM
+	.enable = override_vbus_regulator_enable,
+	.disable = override_vbus_regulator_disable,
+#else
 	.enable = smblib_vbus_regulator_enable,
 	.disable = smblib_vbus_regulator_disable,
+#endif
 	.is_enabled = smblib_vbus_regulator_is_enabled,
 };
 
@@ -2102,8 +2398,13 @@ static int smb5_init_vbus_regulator(struct smb5 *chip)
  ******************************/
 
 static struct regulator_ops smb5_vconn_reg_ops = {
+#ifdef CONFIG_LGE_PM
+	.enable = override_vconn_regulator_enable,
+	.disable = override_vconn_regulator_disable,
+#else
 	.enable = smblib_vconn_regulator_enable,
 	.disable = smblib_vconn_regulator_disable,
+#endif
 	.is_enabled = smblib_vconn_regulator_is_enabled,
 };
 
@@ -2162,7 +2463,11 @@ static int smb5_configure_typec(struct smb_charger *chg)
 	 * cables due to VBUS attachment prior to CC attach/detach. Reset
 	 * the legacy detection logic by enabling/disabling the typeC mode.
 	 */
+#ifdef CONFIG_LGE_PM
+	if (chg->pd_not_supported && (val & TYPEC_LEGACY_CABLE_STATUS_BIT)) {
+#else
 	if (val & TYPEC_LEGACY_CABLE_STATUS_BIT) {
+#endif
 		pval.intval = POWER_SUPPLY_TYPEC_PR_NONE;
 		rc = smblib_set_prop_typec_power_role(chg, &pval);
 		if (rc < 0) {
@@ -2212,8 +2517,13 @@ static int smb5_configure_typec(struct smb_charger *chg)
 
 	val = chg->lpd_disabled ? 0 : TYPEC_WATER_DETECTION_INT_EN_BIT;
 	/* Use simple write to enable only required interrupts */
+#ifdef CONFIG_LGE_PM
+	// Disable TYPEC_SRC_BATT_HPWR_INT_EN_BIT for preventing OTG interrupt storm
+	rc = smblib_write(chg, TYPE_C_INTERRUPT_EN_CFG_2_REG, val);
+#else
 	rc = smblib_write(chg, TYPE_C_INTERRUPT_EN_CFG_2_REG,
 				TYPEC_SRC_BATT_HPWR_INT_EN_BIT | val);
+#endif
 	if (rc < 0) {
 		dev_err(chg->dev,
 			"Couldn't configure Type-C interrupts rc=%d\n", rc);
@@ -2226,7 +2536,8 @@ static int smb5_configure_typec(struct smb_charger *chg)
 				EN_TRY_SNK_BIT);
 	if (rc < 0) {
 		dev_err(chg->dev,
-			"Couldn't configure TYPE_C_MODE_CFG_REG rc=%d\n", rc);
+			"Couldn't configure TYPE_C_MODE_CFG_REG rc=%d\n",
+				rc);
 		return rc;
 	}
 	chg->typec_try_mode |= EN_TRY_SNK_BIT;
@@ -2276,6 +2587,17 @@ static int smb5_configure_typec(struct smb_charger *chg)
 	if (rc < 0)
 		dev_err(chg->dev,
 			"Couldn't configure CC threshold voltage rc=%d\n", rc);
+
+#ifdef CONFIG_LGE_USB
+	/* Set initial setting time for SNK/SRC crude sensor to 1.2ms. */
+	rc = smblib_masked_write(chg, TYPE_C_CRUDE_SENSOR_CFG_REG,
+				 SNK_SRC_CRUDE_CC_SETTLE_SEL_BIT,
+				 SNK_SRC_CRUDE_CC_SETTLE_SEL_BIT);
+	if (rc < 0) {
+		dev_err(chg->dev, "Couldn't set CRUDE_SENSOR cfg rc=%d\n", rc);
+		return rc;
+	}
+#endif
 
 	return rc;
 }
@@ -2351,6 +2673,9 @@ static int smb5_configure_iterm_thresholds_adc(struct smb5 *chip)
 	else
 		max_limit_ma = ITERM_LIMITS_PM8150B_MA;
 
+	pr_err("iterm_hi=%d,iterm_lo=%d \n"
+		,chip->dt.term_current_thresh_hi_ma
+		,chip->dt.term_current_thresh_lo_ma);
 	if (chip->dt.term_current_thresh_hi_ma < (-1 * max_limit_ma)
 		|| chip->dt.term_current_thresh_hi_ma > max_limit_ma
 		|| chip->dt.term_current_thresh_lo_ma < (-1 * max_limit_ma)
@@ -2482,12 +2807,14 @@ static int smb5_init_dc_peripheral(struct smb_charger *chg)
 	if (chg->chg_param.smb_version == PMI632_SUBTYPE)
 		return 0;
 
+#ifndef CONFIG_LGE_PM
 	/* Set DCIN ICL to 100 mA */
 	rc = smblib_set_charge_param(chg, &chg->param.dc_icl, DCIN_ICL_MIN_UA);
 	if (rc < 0) {
 		dev_err(chg->dev, "Couldn't set dc_icl rc=%d\n", rc);
 		return rc;
 	}
+#endif
 
 	/* Disable DC Input missing poller function */
 	rc = smblib_masked_write(chg, DCIN_LOAD_CFG_REG,
@@ -2763,7 +3090,16 @@ static int smb5_init_hw(struct smb5 *chip)
 	}
 
 	/* Use ICL results from HW */
+#ifdef CONFIG_LGE_PM_VENEER_PSY
+	if(unified_bootmode_fabproc()) {
+		rc = smblib_icl_override(chg, SW_FACTORY_MODE);
+		pr_info("Set icl override config to factory mode");
+	} else {
+		rc = smblib_icl_override(chg, HW_AUTO_MODE);
+	}
+#else
 	rc = smblib_icl_override(chg, HW_AUTO_MODE);
+#endif
 	if (rc < 0) {
 		pr_err("Couldn't disable ICL override rc=%d\n", rc);
 		return rc;
@@ -3014,8 +3350,11 @@ static int smb5_determine_initial_status(struct smb5 *chip)
 
 	if (chg->bms_psy)
 		smblib_suspend_on_debug_battery(chg);
-
+#ifdef CONFIG_LGE_PM
+	extension_smb5_determine_initial_status(chg, &irq_data);
+#else
 	usb_plugin_irq_handler(0, &irq_data);
+	usb_source_change_irq_handler(0, &irq_data);
 	dc_plugin_irq_handler(0, &irq_data);
 	typec_attach_detach_irq_handler(0, &irq_data);
 	typec_state_change_irq_handler(0, &irq_data);
@@ -3026,6 +3365,7 @@ static int smb5_determine_initial_status(struct smb5 *chip)
 	wdog_bark_irq_handler(0, &irq_data);
 	typec_or_rid_detection_change_irq_handler(0, &irq_data);
 	wdog_snarl_irq_handler(0, &irq_data);
+#endif
 
 	return 0;
 }
@@ -3042,7 +3382,11 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[CHG_STATE_CHANGE_IRQ] = {
 		.name		= "chg-state-change",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_chg_state_change_irq_handler,
+#else
 		.handler	= chg_state_change_irq_handler,
+#endif
 		.wake		= true,
 	},
 	[STEP_CHG_STATE_CHANGE_IRQ] = {
@@ -3066,13 +3410,23 @@ static struct smb_irq_info smb5_irqs[] = {
 	/* DCDC IRQs */
 	[OTG_FAIL_IRQ] = {
 		.name		= "otg-fail",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_otg_fault_irq_handler,
+#else
 		.handler	= default_irq_handler,
+#endif
 	},
 	[OTG_OC_DISABLE_SW_IRQ] = {
 		.name		= "otg-oc-disable-sw",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_otg_fault_irq_handler,
+#endif
 	},
 	[OTG_OC_HICCUP_IRQ] = {
 		.name		= "otg-oc-hiccup",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_otg_oc_hiccup_irq_handler,
+#endif
 	},
 	[BSM_ACTIVE_IRQ] = {
 		.name		= "bsm-active",
@@ -3091,7 +3445,12 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[SWITCHER_POWER_OK_IRQ] = {
 		.name		= "switcher-power-ok",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_switcher_power_ok_irq_handler,
+		.wake		= true,
+#else
 		.handler	= switcher_power_ok_irq_handler,
+#endif
 	},
 	/* BATTERY IRQs */
 	[BAT_TEMP_IRQ] = {
@@ -3135,7 +3494,11 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[USBIN_UV_IRQ] = {
 		.name		= "usbin-uv",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_usbin_uv_irq_handler,
+#else
 		.handler	= usbin_uv_irq_handler,
+#endif
 		.wake		= true,
 		.storm_data	= {true, 3000, 5},
 	},
@@ -3145,7 +3508,11 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[USBIN_PLUGIN_IRQ] = {
 		.name		= "usbin-plugin",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_usb_plugin_irq_handler,
+#else
 		.handler	= usb_plugin_irq_handler,
+#endif
 		.wake           = true,
 	},
 	[USBIN_REVI_CHANGE_IRQ] = {
@@ -3153,7 +3520,11 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[USBIN_SRC_CHANGE_IRQ] = {
 		.name		= "usbin-src-change",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_usb_source_change_irq_handler,
+#else
 		.handler	= usb_source_change_irq_handler,
+#endif
 		.wake           = true,
 	},
 	[USBIN_ICL_CHANGE_IRQ] = {
@@ -3164,10 +3535,17 @@ static struct smb_irq_info smb5_irqs[] = {
 	/* DC INPUT IRQs */
 	[DCIN_VASHDN_IRQ] = {
 		.name		= "dcin-vashdn",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_dcin_irq_handler,
+#endif
 	},
 	[DCIN_UV_IRQ] = {
 		.name		= "dcin-uv",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_dcin_uv_irq_handler,
+#else
 		.handler	= dcin_uv_irq_handler,
+#endif
 		.wake		= true,
 	},
 	[DCIN_OV_IRQ] = {
@@ -3176,7 +3554,11 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[DCIN_PLUGIN_IRQ] = {
 		.name		= "dcin-plugin",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_dc_plugin_irq_handler,
+#else
 		.handler	= dc_plugin_irq_handler,
+#endif
 		.wake           = true,
 	},
 	[DCIN_REVI_IRQ] = {
@@ -3184,16 +3566,28 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[DCIN_PON_IRQ] = {
 		.name		= "dcin-pon",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_dcin_irq_handler,
+#else
 		.handler	= default_irq_handler,
+#endif
 	},
 	[DCIN_EN_IRQ] = {
 		.name		= "dcin-en",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_dcin_irq_handler,
+#else
 		.handler	= default_irq_handler,
+#endif
 	},
 	/* TYPEC IRQs */
 	[TYPEC_OR_RID_DETECTION_CHANGE_IRQ] = {
 		.name		= "typec-or-rid-detect-change",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_typec_or_rid_detection_change_irq_handler,
+#else
 		.handler	= typec_or_rid_detection_change_irq_handler,
+#endif
 		.wake           = true,
 	},
 	[TYPEC_VPD_DETECT_IRQ] = {
@@ -3201,19 +3595,31 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[TYPEC_CC_STATE_CHANGE_IRQ] = {
 		.name		= "typec-cc-state-change",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_typec_state_change_irq_handler,
+#else
 		.handler	= typec_state_change_irq_handler,
+#endif
 		.wake           = true,
 	},
 	[TYPEC_VCONN_OC_IRQ] = {
 		.name		= "typec-vconn-oc",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_typec_vconn_oc_irq_handler,
+#else
 		.handler	= default_irq_handler,
+#endif
 	},
 	[TYPEC_VBUS_CHANGE_IRQ] = {
 		.name		= "typec-vbus-change",
 	},
 	[TYPEC_ATTACH_DETACH_IRQ] = {
 		.name		= "typec-attach-detach",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_typec_attach_detach_irq_handler,
+#else
 		.handler	= typec_attach_detach_irq_handler,
+#endif
 		.wake		= true,
 	},
 	[TYPEC_LEGACY_CABLE_DETECT_IRQ] = {
@@ -3227,7 +3633,11 @@ static struct smb_irq_info smb5_irqs[] = {
 	[WDOG_SNARL_IRQ] = {
 		.name		= "wdog-snarl",
 		.handler	= wdog_snarl_irq_handler,
+#ifdef CONFIG_LGE_PM
+		.wake		= false,
+#else
 		.wake		= true,
+#endif
 	},
 	[WDOG_BARK_IRQ] = {
 		.name		= "wdog-bark",
@@ -3236,6 +3646,9 @@ static struct smb_irq_info smb5_irqs[] = {
 	},
 	[AICL_FAIL_IRQ] = {
 		.name		= "aicl-fail",
+#ifdef CONFIG_LGE_PM
+		.handler	= override_aicl_fail_irq_handler,
+#endif
 	},
 	[AICL_DONE_IRQ] = {
 		.name		= "aicl-done",
@@ -3565,6 +3978,15 @@ static int smb5_probe(struct platform_device *pdev)
 	chg->debug_mask = &__debug_mask;
 	chg->pd_disabled = 0;
 	chg->weak_chg_icl_ua = 500000;
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	chg->lge_lpd_disabled = &__lpd_disabled;
+	chg->lpd_ux = &__lpd_ux;
+	chg->lpd_dpdm_disable = &__lpd_dpdm_disable;
+	chg->lpd_apsd_disable = &__lpd_apsd_disable;
+	chg->lpd_threshold = &__lpd_threshold;
+	chg->lpd_floating = &__lpd_floating;
+	chg->check_factory_lpd = &__check_factory_lpd;
+#endif
 	chg->mode = PARALLEL_MASTER;
 	chg->irq_info = smb5_irqs;
 	chg->die_health = -EINVAL;
@@ -3597,7 +4019,47 @@ static int smb5_probe(struct platform_device *pdev)
 				smblib_lpd_recheck_timer);
 	else
 		return -EPROBE_DEFER;
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	alarm_init(&chg->lpd_recheck_timer, ALARM_REALTIME,
+		   smblib_lpd_recheck_timer_override);
+	INIT_WORK(&chg->lpd_recheck_work, smblib_lpd_recheck_timer_work);
+#endif
 
+#if defined(CONFIG_LGE_USB_MOISTURE_DETECTION) \
+	&& defined(CONFIG_LGE_USB_SBU_SWITCH)
+	chg->sbu_desc.flags = LGE_SBU_SWITCH_FLAG_SBU_DISABLE |
+		LGE_SBU_SWITCH_FLAG_SBU_MD_ING;
+	chg->sbu_inst = devm_lge_sbu_switch_instance_register(chg->dev,
+							      &chg->sbu_desc);
+	if (IS_ERR_OR_NULL(chg->sbu_inst)) {
+		pr_err("Couldn't register lge_sbu_switch rc=%d\n",
+		       PTR_ERR(chg->sbu_inst));
+		return PTR_ERR(chg->sbu_inst);
+	}
+#endif
+#if defined(CONFIG_CHARGER_IDTP9222) || defined(CONFIG_CHARGER_IDTP9222_V2)
+	/* location : earlier than smblib_init (work, irq initialization) */
+	chg->dc_icl_votable = find_votable("DC_ICL");
+	if (!chg->dc_icl_votable) {
+		rc = -EPROBE_DEFER;
+		pr_err("Couldn't find_votable DC_ICL, rc=%d\n", rc);
+		return rc;
+	}
+#if defined(CONFIG_CHARGER_IDTP9222_V2)
+	chg->dc_reset_votable = find_votable("DC_RESET");
+	if (!chg->dc_reset_votable) {
+		rc = -EPROBE_DEFER;
+		pr_err("Couldn't find_votable DC_RESET, rc=%d\n", rc);
+		return rc;
+	}
+#endif
+	chg->wls_psy = power_supply_get_by_name("wireless");
+	if (!chg->wls_psy) {
+		rc = -EPROBE_DEFER;
+		pr_err("Couldn't get wls_psy, rc=%d\n", rc);
+		return rc;
+	}
+#endif
 	rc = smblib_init(chg);
 	if (rc < 0) {
 		pr_err("Smblib_init failed rc=%d\n", rc);
@@ -3732,7 +4194,6 @@ static int smb5_probe(struct platform_device *pdev)
 	}
 
 	smb5_create_debugfs(chip);
-
 	rc = sysfs_create_groups(&chg->dev->kobj, smb5_groups);
 	if (rc < 0) {
 		pr_err("Couldn't create sysfs files rc=%d\n", rc);
@@ -3746,7 +4207,34 @@ static int smb5_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(chg->dev, true);
+#ifdef CONFIG_LGE_PM
+	extension_smb5_probe(chg);
+#endif
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
+	if (lge_get_factory_boot()) {
+		__lpd_disabled = true;
 
+		/* Disable moisture detection */
+		/* XXX:
+		 * When WATER_DETECTION_INT is turned off, there is a problem
+		 * that CC does not toggle when connecting / disconnecting RD
+		 * with VBUS. So do not turn off WATER_DETECTION_INT.
+		rc = smblib_masked_write(chg,
+				TYPE_C_INTERRUPT_EN_CFG_2_REG,
+				TYPEC_WATER_DETECTION_INT_EN_BIT, 0);
+		if (rc < 0) {
+			pr_err("Couldn't disable moisture detection interrupt rc=%d\n", rc);
+			return rc;
+		}
+		 */
+		pr_info("Disable moisture detection\n");
+	}
+#endif
+#ifdef CONFIG_LGE_USB_MOISTURE_DETECTION_NO_UX
+	__lpd_ux = false;
+#else
+	__lpd_ux = true;
+#endif
 	pr_info("QPNP SMB5 probed successfully\n");
 
 	return rc;
@@ -3754,6 +4242,10 @@ static int smb5_probe(struct platform_device *pdev)
 free_irq:
 	smb5_free_interrupts(chg);
 cleanup:
+#if defined(CONFIG_LGE_USB_MOISTURE_DETECTION) \
+	&& defined(CONFIG_LGE_USB_SBU_SWITCH)
+	devm_lge_sbu_switch_instance_unregister(chg->dev, chg->sbu_inst);
+#endif
 	smblib_deinit(chg);
 	platform_set_drvdata(pdev, NULL);
 
@@ -3813,6 +4305,10 @@ static struct platform_driver smb5_driver = {
 	.shutdown	= smb5_shutdown,
 };
 module_platform_driver(smb5_driver);
+
+#ifdef CONFIG_LGE_PM
+#include "../lge/extension-smb5.c"
+#endif
 
 MODULE_DESCRIPTION("QPNP SMB5 Charger Driver");
 MODULE_LICENSE("GPL v2");

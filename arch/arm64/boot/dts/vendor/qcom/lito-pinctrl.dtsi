@@ -449,6 +449,7 @@
 		};
 
 		/* WSA speaker reset pins */
+/* Disable WSA speaker amp
 		spkr_1_sd_n {
 			spkr_1_sd_n_sleep: spkr_1_sd_n_sleep {
 				mux {
@@ -458,7 +459,7 @@
 
 				config {
 					pins = "gpio58";
-					drive-strength = <2>;   /* 2 mA */
+					drive-strength = <2>;
 					bias-pull-down;
 					input-enable;
 				};
@@ -472,7 +473,7 @@
 
 				config {
 					pins = "gpio58";
-					drive-strength = <16>;   /* 16 mA */
+					drive-strength = <16>;
 					bias-disable;
 					output-high;
 				};
@@ -488,7 +489,7 @@
 
 				config {
 					pins = "gpio65";
-					drive-strength = <2>;   /* 2 mA */
+					drive-strength = <2>;
 					bias-pull-down;
 					input-enable;
 				};
@@ -502,13 +503,13 @@
 
 				config {
 					pins = "gpio65";
-					drive-strength = <16>;   /* 16 mA */
+					drive-strength = <16>;
 					bias-disable;
 					output-high;
 				};
 			};
 		};
-
+*/
 		wcd938x_reset_active: wcd938x_reset_active {
 			mux {
 				pins = "gpio57";

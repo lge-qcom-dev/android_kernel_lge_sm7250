@@ -28,9 +28,73 @@
 #include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 #include <linux/spinlock.h>
 #include <dt-bindings/input/gpio-keys.h>
+#include <linux/hall_ic.h>
+
+#ifdef CONFIG_LGE_HANDLE_PANIC
+#include <soc/qcom/lge/lge_handle_panic.h>
+#endif
+
+
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+#include <linux/lge_ds3.h>
+#include <soc/qcom/lge/board_lge.h>
+extern bool lge_get_mfts_mode(void);
+extern bool lge_get_factory_boot(void);
+#endif
+
+#ifdef CONFIG_LGE_TOUCH_CORE_SUB
+extern void touch_notify_swivel(u32 type);
+extern void touch_sub_notify_swivel(u32 type);
+#endif
+
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+extern int lge_get_dual_display_support(void);
+struct hallic_dev luke_sdev = {
+       .name = "coverdisplay",
+};
+struct hallic_dev cover_fw_dev = {
+       .name = "cover_fw",
+       .state = -1,
+};
+struct hallic_dev cover_recovery = {
+	.name = "cover_recovery",
+	.state = 0,
+};
+int ready_dd_on;
+#endif
+
+#define CONFIG_LGE_SUPPORT_HALLIC
+#ifdef CONFIG_LGE_SUPPORT_HALLIC
+#if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+/* This dev is only used for saving gpio state.
+ * State transition is passed via Key event(SW_LID).
+ * So it doesn't need to register as hallic dev.
+ */
+struct hallic_dev swivel_dev = {
+	.name = "swivel",
+	.state = 0,
+	.state_front = 0,
+	.state_back = 0,
+};
+#else
+struct hallic_dev sdev = {
+	.name = "smartcover",
+	.state = 0,
+	.state_front = 0,
+	.state_back = 0,
+};
+
+struct hallic_dev ndev = {
+	.name = "nfccover",
+	.state = 0,
+};
+#endif
+#endif
 
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
@@ -173,6 +237,156 @@ static void gpio_keys_enable_button(struct gpio_button_data *bdata)
 	}
 }
 
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+static void send_recovery_event(int num)
+{
+	if (!cover_recovery.state) {
+		pr_info("[DD] %s\n", __func__);
+		hallic_set_state(&cover_recovery, num);
+	}
+}
+#endif
+
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+void request_dualscreen_recovery(void)
+{
+	pr_info("[DD] %s\n", __func__);
+	send_recovery_event(1);
+	cover_recovery.state = 0;
+}
+EXPORT_SYMBOL(request_dualscreen_recovery);
+#endif
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+static ssize_t virtual_mcu_firmware_write_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count){
+	unsigned long val = simple_strtoul(buf, NULL, 10);
+
+	pr_info("[MCU_FW] virtual_mcu_firmware_write set to [%d]\n", (int)val);
+
+	switch ((int)val) {
+	case DD_MCU_FORCE_UPDATE:
+		hallic_set_state(&cover_fw_dev, UPDATE_NO_NEED);
+		mdelay(100);
+		hallic_set_state(&cover_fw_dev, UPDATE_NEED);
+		pr_info("[MCU_FW][%s] cover_fw set to %d\n", __func__, UPDATE_NEED);
+		break;
+	case DD_MCU_CANCEL:
+		hallic_set_state(&cover_fw_dev, UPDATE_NO_NEED);
+		pr_info("[MCU_FW][%s] cover_fw set to %d\n", __func__, UPDATE_NO_NEED);
+		break;
+	case DD_MCU_RECOVERY:
+		hallic_set_state(&cover_fw_dev, UPDATE_NO_NEED);
+		mdelay(100);
+		hallic_set_state(&cover_fw_dev, RECOVERY_NEED);
+		pr_info("[MCU_FW][%s] cover_fw set to %d\n", __func__, RECOVERY_NEED);
+	}
+
+	return count;
+}
+#endif
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+static ssize_t cover_recovery_req_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count){
+	int delay;
+	ssize_t ret = strnlen(buf, PAGE_SIZE);
+
+	sscanf(buf, "%d", &delay);
+	pr_err("%s : %d\n", __func__, delay);
+
+	send_recovery_event(1);
+	cover_recovery.state = 0;       //FIXME : This value is set if power on control receivced from framework in DS1.
+
+    return ret;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+static ssize_t swivel_event_refresh_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count){
+	int i, current_state;
+	ssize_t ret = strnlen(buf, PAGE_SIZE);
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
+
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		struct gpio_button_data *bdata = &ddata->data[i];
+		struct input_dev *input = bdata->input;
+
+		if (!strncmp(bdata->button->desc, "swivel_end", 10) || !strncmp(bdata->button->desc, "swivel_start", 12)) {
+			current_state = swivel_dev.state;
+			if (swivel_dev.state) {
+				hallic_set_state(&swivel_dev, 0);
+				hallic_set_state(&swivel_dev, current_state);
+				input_event(input, EV_SW, *bdata->code, 0);
+				input_event(input, EV_SW, *bdata->code, current_state);
+			} else {
+				hallic_set_state(&swivel_dev, 1);
+				hallic_set_state(&swivel_dev, current_state);
+				input_event(input, EV_SW, *bdata->code, 1);
+				input_event(input, EV_SW, *bdata->code, current_state);
+			}
+			pr_info("%s : code(%d), value(%d)\n", __func__, bdata->button->code, swivel_dev.state);
+			input_sync(input);
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static ssize_t swivel_event_injector_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count){
+	int event, i;
+	ssize_t ret = strnlen(buf, PAGE_SIZE);
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
+
+	sscanf(buf, "%d", &event);
+
+	if (event < SWIVEL_HALF_OPENED || event > SWIVEL_OPENED) {
+		pr_err("%s : Wrong input for swivel. evnet should be between 0 and 2.\n", __func__);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		struct gpio_button_data *bdata = &ddata->data[i];
+		struct input_dev *input = bdata->input;
+
+		if (!strncmp(bdata->button->desc, "swivel_end", 10) || !strncmp(bdata->button->desc, "swivel_start", 12)) {
+			if (swivel_dev.state != event) {
+				hallic_set_state(&swivel_dev, event);
+				swivel_dev.state = event;
+				input_event(input, EV_SW, *bdata->code, event);
+				pr_info("%s : code(%d), value(%d)\n", __func__, bdata->button->code, event);
+				input_sync(input);
+			}
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static ssize_t swivel_event_injector_show(struct device *dev, struct device_attribute *attr, char *buf){
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
+	int swivel_state, i;
+
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		struct gpio_button_data *bdata = &ddata->data[i];
+
+		if (!strncmp(bdata->button->desc, "swivel_end", 10) || !strncmp(bdata->button->desc, "swivel_start", 12)) {
+			swivel_state = swivel_dev.state;
+			break;
+		}
+	}
+
+	if (i == ddata->pdata->nbuttons)
+		goto error;
+
+	return sprintf(buf, "%d\n", swivel_state);
+
+error:
+	pr_err("swivel gpio_key is not registered.\n");
+	return -ENODEV;
+}
+#endif
 /**
  * gpio_keys_attr_show_helper() - fill in stringified bitmap of buttons
  * @ddata: pointer to drvdata
@@ -347,11 +561,35 @@ static DEVICE_ATTR(disabled_switches, S_IWUSR | S_IRUGO,
 		   gpio_keys_show_disabled_switches,
 		   gpio_keys_store_disabled_switches);
 
+#if defined (CONFIG_LGE_DUAL_SCREEN)
+static DEVICE_ATTR(virtual_mcu_firmware_write, S_IRUGO | S_IWUSR | S_IWGRP,
+       NULL,
+       virtual_mcu_firmware_write_store);
+static DEVICE_ATTR(cover_recovery_req, S_IRUGO | S_IWUSR | S_IWGRP,
+       NULL,
+       cover_recovery_req_store);
+#endif
+#if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+static DEVICE_ATTR(swivel_event_refresh, S_IRUGO | S_IWUSR | S_IWGRP,
+       NULL,
+       swivel_event_refresh_store);
+static DEVICE_ATTR(swivel_event_injector, S_IRUGO | S_IWUSR | S_IWGRP,
+       swivel_event_injector_show,
+       swivel_event_injector_store);
+#endif
 static struct attribute *gpio_keys_attrs[] = {
 	&dev_attr_keys.attr,
 	&dev_attr_switches.attr,
 	&dev_attr_disabled_keys.attr,
 	&dev_attr_disabled_switches.attr,
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+	&dev_attr_virtual_mcu_firmware_write.attr,
+	&dev_attr_cover_recovery_req.attr,
+#endif
+#if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+	&dev_attr_swivel_event_refresh.attr,
+	&dev_attr_swivel_event_injector.attr,
+#endif
 	NULL,
 };
 
@@ -377,9 +615,229 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 		if (state)
 			input_event(input, type, button->code, button->value);
 	} else {
+#if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+		if (!strncmp(bdata->button->desc, "swivel_start", 12)) {
+			pr_info("[Display] swivel_start dev.state = %d, state_front = %d, state_back = %d, state = %d\n", swivel_dev.state, swivel_dev.state_front, swivel_dev.state_back, state);
+			if (swivel_dev.state_front != state) {
+				swivel_dev.state_front = state;
+
+				if (swivel_dev.state_front == 1 && swivel_dev.state_back == 0) {
+					state = SWIVEL_CLOSED;
+				} else if (swivel_dev.state_front == 0 && swivel_dev.state_back == 0){
+					state = SWIVEL_HALF_OPENED;
+				} else if (swivel_dev.state_front == 0 && swivel_dev.state_back == 1) {
+					state = SWIVEL_OPENED;
+				} else if (swivel_dev.state_front == 1 && swivel_dev.state_back == 1) {
+					state = SWIVEL_CLOSED; // undefined state, set SWIVEL_CLOSED forcingly
+				}
+
+				if (swivel_dev.state != state) {
+					pr_info("[Display] swivel_start changed dev.state from %d to %d\n", swivel_dev.state, state);
+					if (swivel_dev.state > 0 && state > 0) {
+						hallic_set_state(&swivel_dev, 0);
+						input_event(input, type, *bdata->code, 0);
+						pr_info("[Display] swivel_start send 0 state to avoid ingnoring by input event device\n");
+						pr_info("gpio_keys_report_event: code(%d), value(0)\n", button->code);
+						input_sync(input);
+					}
+					hallic_set_state(&swivel_dev, state);
+					swivel_dev.state = state;
+#ifdef CONFIG_LGE_SAR_CONTROLLER_USB_DETECT
+                                        if( state == SWIVEL_OPENED || state == SWIVEL_CLOSED ){
+                                            extern void sar_controller_notify_connect(u32 type, bool is_connected);
+                                            sar_controller_notify_connect(state, 0); 
+                                        }
+#endif
+#ifdef CONFIG_LGE_TOUCH_CORE_SUB
+					pr_info("[Touch] swivel_start changed dev.state from %d to %d\n", swivel_dev.state, state);
+					touch_notify_swivel((u32)state);
+					touch_sub_notify_swivel((u32)state);
+#endif
+				} else {
+					// do nothing at same state
+					return;
+				}
+			} else {
+				// do nothing at same state
+				return;
+			}
+		}
+
+		if (!strncmp(bdata->button->desc, "swivel_end", 10)) {
+			pr_info("[Display] swivel_end dev.state = %d, state_front = %d, state_back = %d, state = %d\n", swivel_dev.state, swivel_dev.state_front, swivel_dev.state_back, state);
+			if (swivel_dev.state_back != state) {
+				swivel_dev.state_back = state;
+
+				if (swivel_dev.state_front == 1 && swivel_dev.state_back == 0) {
+					state = SWIVEL_CLOSED;
+				} else if (swivel_dev.state_front == 0 && swivel_dev.state_back == 0){
+					state = SWIVEL_HALF_OPENED;
+				} else if (swivel_dev.state_front == 0 && swivel_dev.state_back == 1) {
+					state = SWIVEL_OPENED;
+				} else if (swivel_dev.state_front == 1 && swivel_dev.state_back == 1) {
+					state = SWIVEL_CLOSED; // undefined state, set SWIVEL_CLOSED forcingly
+				}
+
+				if (swivel_dev.state != state) {
+					pr_info("[Display] swivel_end changed dev.state from %d to %d\n", swivel_dev.state, state);
+					if (swivel_dev.state > 0 && state > 0) {
+						hallic_set_state(&swivel_dev, 0);
+						input_event(input, type, *bdata->code, 0);
+						pr_info("[Display] swivel_end send 0 state to avoid ignoring by input event device\n");
+						pr_info("gpio_keys_report_event: code(%d), value(0)\n", button->code);
+						input_sync(input);
+					}
+					hallic_set_state(&swivel_dev, state);
+					swivel_dev.state = state;
+#ifdef CONFIG_LGE_SAR_CONTROLLER_USB_DETECT
+                                        if( state == SWIVEL_OPENED || state == SWIVEL_CLOSED ){
+                                            extern void sar_controller_notify_connect(u32 type, bool is_connected);
+                                            sar_controller_notify_connect(state, 1); 
+                                        }
+#endif
+#ifdef CONFIG_LGE_TOUCH_CORE_SUB
+					pr_info("[Touch] swivel_end changed dev.state from %d to %d\n", swivel_dev.state, state);
+					touch_notify_swivel((u32)state);
+					touch_sub_notify_swivel((u32)state);
+#endif
+				} else {
+					// do nothing at same state
+					return;
+				}
+			} else {
+				// do nothing at same state
+				return;
+			}
+		}
+#endif
+
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+		if (is_ds_connected() && ((*bdata->code == 115) || (*bdata->code == 377)) ) {
+			pr_err("gpio_keys_report_event: skip report event! is_ds_connected(%d), code(%d), value(%d)\n", is_ds_connected(), button->code, state);
+		} else {
+			input_event(input, type, *bdata->code, state);
+			pr_err("gpio_keys_report_event: code(%d), value(%d)\n",button->code, state);
+		}
+#else
 		input_event(input, type, *bdata->code, state);
+		pr_err("gpio_keys_report_event: code(%d), value(%d)\n", button->code, state);
+#endif
+#ifdef CONFIG_LGE_HANDLE_PANIC
+		lge_gen_key_panic(button->code, state);
+#endif
+
+#ifdef CONFIG_LGE_SUPPORT_HALLIC
+#if !IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+		if (lge_get_dual_display_support()) {
+			if (!strncmp(bdata->button->desc, "smart_cover", 11) &&
+				!is_ds_connected()) {
+				if (sdev.state_front != state) {
+					sdev.state_front = state;
+					hallic_set_state(&sdev, state);
+					pr_info("[Display] smart_cover state switched to %s \n", (state ? "CLOSE" : "OPEN"));
+				}
+			}
+
+			if (!strncmp(bdata->button->desc, "cover_display_back", 18) &&
+				!is_ds_connected()) {
+				if (state) {
+					state = BACKCOVER_CLOSE;
+				}
+				if (sdev.state_back != state) {
+					sdev.state_back = state;
+					hallic_set_state(&sdev, state);
+					pr_info("[Display] cover_display_back state switched to %s\n", ((state==BACKCOVER_CLOSE) ? "CLOSE" : "OPEN"));
+				}
+			}
+
+			if (!strncmp(bdata->button->desc, "ds3_smart_cover", 15)) {
+				if (sdev.state_front != state) {
+					sdev.state_front = state;
+					hallic_set_state(&sdev, state);
+					pr_info("[Display][hallIC] %s state switched to %s \n", "ds3_smart_cover", (state ? "CLOSE" : "OPEN"));
+				}
+			}
+
+			if (!strncmp(bdata->button->desc, "ds3_cover_display_back", 22)) {
+				if (state) {
+					state = BACKCOVER_CLOSE;
+				}
+				if (sdev.state_back != state) {
+					sdev.state_back = state;
+					hallic_set_state(&sdev, state);
+					pr_info("[Display][hallIC] %s state switched to %s \n", "ds3_cover_display_back", (state ? "CLOSE" : "OPEN"));
+				}
+			}
+
+			if (!strncmp(bdata->button->desc, "luke", 4)) {
+				if (state == 1) {
+					if (lge_get_mfts_mode())
+						luke_sdev.state = 1;
+					if (!lge_get_factory_boot()) {
+						if (sdev.state_front) {
+							hallic_set_state(&sdev, sdev.state_front);
+							pr_info("[Display][hallIC] Set ds3_smart_cover to close\n");
+						}
+						if (sdev.state_back) {
+							hallic_set_state(&sdev, sdev.state_back);
+							pr_info("[Display][hallIC] Set ds3_cover_display_back to close\n");
+						}
+					}
+					set_hallic_status(true);
+					pr_info("[Display][hallIC] DS3 cover hallic connected\n");
+				} else if (state == 0) {
+					if (lge_get_mfts_mode())
+						luke_sdev.state = 0;
+					if (!lge_get_factory_boot()) {
+						if (sdev.state_front) {
+							sdev.state_front = 0;
+							pr_info("[Display][hallIC] Reset ds3_smart_cover to open");
+						}
+						if (sdev.state_back) {
+							sdev.state_back = 0;
+							pr_info("[Display][hallIC] Reset ds3_cover_display_back to open");
+						}
+						hallic_set_state(&sdev, 0);
+					}
+					pr_info("[Display][hallIC] DS3 cover hallic disconnected\n");
+					set_hallic_status(false);
+				}
+			}
+#ifdef CONFIG_LGE_PM
+			if (!strncmp(bdata->button->desc, "luke", 4)) {
+				extern void wa_update_hall_ic(bool hall_ic);
+				wa_update_hall_ic(!!state);
+			}
+#endif
+		}
+#else
+		if (!strncmp(bdata->button->desc, "smart_cover", 11)) {
+			if (sdev.state_front != state) {
+				sdev.state_front = state;
+				hallic_set_state(&sdev, state);
+				pr_info("[Display] smart_cover state switched to %s \n", (state ? "CLOSE" : "OPEN"));
+			}
+		}
+#endif
+		if (!strncmp(bdata->button->desc, "nfc_cover", 9)) {
+			if (ndev.state != !!state) {
+				hallic_set_state(&ndev, state);
+				pr_info("[Display] nfc_cover state switched to %s \n", (state ? "CLOSE" : "OPEN"));
+			} else {
+				pr_err("[Display] %s: discard wrong nfc_cover irq %s \n", __func__, (state ? "CLOSE" : "OPEN"));
+				return;
+			}
+		}
+#endif
+#endif
 	}
+#if defined (CONFIG_LGE_DUAL_SCREEN)
+	if (!(is_ds_connected() && ((*bdata->code == 115) || (*bdata->code == 377))))
+		input_sync(input);
+#else
 	input_sync(input);
+#endif
 }
 
 static void gpio_keys_gpio_work_func(struct work_struct *work)
@@ -552,6 +1010,67 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 				bdata->software_debounce =
 						button->debounce_interval;
 		}
+#ifdef CONFIG_LGE_SUPPORT_HALLIC
+#if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
+		if (bdata->button->desc != NULL) {
+			if (!strncmp(bdata->button->desc, "swivel_start", 12))
+			{
+				if (hallic_register(&swivel_dev) < 0) {
+					pr_err("[Display] swivel_start switch registration failed\n");
+				}
+				pr_info("[Display] swivel_start_dev switch registration success\n");
+			}
+			if (!strncmp(bdata->button->desc, "swivel_end", 10))
+			{
+				pr_info("[Display] swivel_end_dev switch registration success\n");
+			}
+		}
+#else
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+		if (bdata->button->desc != NULL && lge_get_dual_display_support()) {
+			if (!strncmp(bdata->button->desc, "smart_cover", 11)) {
+				if (hallic_register(&sdev) < 0) {
+					pr_err("[Display] smart_cover switch registration failed\n");
+				}
+				pr_info("[Display] smart_cover_dev switch registration success\n");
+			}
+
+			if (!strncmp(bdata->button->desc, "ds3_smart_cover", 15)) {
+				if (hallic_register(&sdev) < 0) {
+					pr_err("[Display] ds3_smart_cover switch registration failed\n");
+				}
+				pr_info("[Display] ds3_smart_cover_dev switch registration success\n");
+			}
+
+			if (!strncmp(bdata->button->desc, "ds3_cover_display_back", 22))
+				pr_info("[Display] ds3_cover_display_back register");
+
+			if (!strncmp(bdata->button->desc, "luke", 4)) {
+				if (hallic_register(&luke_sdev) < 0) {
+					pr_err("[Display] luke_dev switch registration failed\n");
+				}
+				pr_info("[Display] luke_dev switch registration success\n");
+			}
+		}
+#else
+		if (bdata->button->desc != NULL) {
+			if (!strncmp(bdata->button->desc, "smart_cover", 11))
+			{
+				if (hallic_register(&sdev) < 0) {
+					pr_err("[Display] smart_cover switch registration failed\n");
+				}
+				pr_info("[Display] smart_cover_dev switch registration success\n");
+			}
+		}
+#endif
+		if (bdata->button->desc != NULL) {
+			if (!strncmp(bdata->button->desc, "nfc_cover", 9)) {
+				hallic_register(&ndev);
+				pr_info("[Display] hallic_dev switch registration success\n");
+			}
+		}
+#endif
+#endif
 
 		if (button->irq) {
 			bdata->irq = button->irq;
@@ -855,6 +1374,25 @@ static int gpio_keys_probe(struct platform_device *pdev)
 	}
 
 	fwnode_handle_put(child);
+
+#if defined(CONFIG_LGE_DUAL_SCREEN)
+	if (!cover_fw_dev.dev) {
+		error = hallic_register(&cover_fw_dev);
+		if (error) {
+			pr_err("cover_fw_dev switch dev register failed\n");
+			return error;
+		}
+		else
+			pr_err("cover_fw_dev switch registration success\n");
+	}
+	if (!cover_recovery.dev) {
+		error = hallic_register(&cover_recovery);
+		if(error) {
+			pr_err("cover recovery switch dev register failed\n");
+			return error;
+		}
+	}
+#endif
 
 	error = devm_device_add_group(dev, &gpio_keys_attr_group);
 	if (error) {

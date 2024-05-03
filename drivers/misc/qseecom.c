@@ -464,6 +464,51 @@ static int __qseecom_alloc_coherent_buf(
 static void __qseecom_free_coherent_buf(uint32_t size,
 				u8 *vaddr, phys_addr_t paddr);
 
+#define CONFIG_HANDLE_LISTENER_EXIT
+#ifdef CONFIG_HANDLE_LISTENER_EXIT
+#include <linux/notifier.h>
+#include <linux/reboot.h>
+
+static void qseecom_handle_listener_exit(struct work_struct *unused)
+{
+	struct qseecom_registered_listener_list *ptr_svc = NULL;
+	int state = atomic_read(&qseecom.qseecom_state);
+
+	pr_warn("enter\n");
+
+	if (state != QSEECOM_STATE_READY) {
+		pr_warn("exit %d state\n", state);
+		return;
+	}
+
+	mutex_lock(&listener_access_lock);
+	list_for_each_entry(ptr_svc, &qseecom.registered_listener_list_head, list) {
+		/* stop CA thread waiting for listener response */
+		ptr_svc->abort = 1;
+		pr_warn("set abort flag for listener id %x\n", ptr_svc->svc.listener_id);
+	}
+	mutex_unlock(&listener_access_lock);
+	wake_up_interruptible_all(&qseecom.send_resp_wq);
+
+	pr_warn("exit\n");
+}
+
+static DECLARE_DELAYED_WORK(listener_exit_work, qseecom_handle_listener_exit);
+
+static int qseecom_reboot_notifier(struct notifier_block *nb,
+				unsigned long code, void *data)
+{
+	schedule_delayed_work(&listener_exit_work, 3 * HZ);
+	pr_warn("mark listener exit after timeout\n");
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block qseecom_reboot_nb = {
+	.notifier_call = qseecom_reboot_notifier,
+};
+#endif
+
 #define QSEECOM_SCM_EBUSY_WAIT_MS 30
 #define QSEECOM_SCM_EBUSY_MAX_RETRY 67
 
@@ -1233,7 +1278,7 @@ exit:
 	return ret;
 }
 
-static int qseecom_destroy_bridge_callback(
+int qseecom_destroy_bridge_callback(
 				struct dma_buf *dmabuf, void *dtor_data)
 {
 	int ret = 0;
@@ -1252,8 +1297,9 @@ static int qseecom_destroy_bridge_callback(
 	dma_buf_set_destructor(dmabuf, NULL, NULL);
 	return ret;
 }
+EXPORT_SYMBOL(qseecom_destroy_bridge_callback);
 
-static int qseecom_create_bridge_for_secbuf(int ion_fd, struct dma_buf *dmabuf,
+int qseecom_create_bridge_for_secbuf(int ion_fd, struct dma_buf *dmabuf,
 				struct sg_table *sgt)
 {
 	int ret = 0, i;
@@ -1334,8 +1380,9 @@ exit_free_vmid_list:
 exit:
 	return ret;
 }
+EXPORT_SYMBOL(qseecom_create_bridge_for_secbuf);
 
-static int qseecom_dmabuf_map(int ion_fd, struct sg_table **sgt,
+int qseecom_dmabuf_map(int ion_fd, struct sg_table **sgt,
 				struct dma_buf_attachment **attach,
 				struct dma_buf **dmabuf)
 {
@@ -1385,8 +1432,9 @@ err_put:
 err:
 	return ret;
 }
+EXPORT_SYMBOL(qseecom_dmabuf_map);
 
-static void qseecom_dmabuf_unmap(struct sg_table *sgt,
+void qseecom_dmabuf_unmap(struct sg_table *sgt,
 			struct dma_buf_attachment *attach,
 			struct dma_buf *dmabuf)
 {
@@ -1394,6 +1442,7 @@ static void qseecom_dmabuf_unmap(struct sg_table *sgt,
 	dma_buf_detach(dmabuf, attach);
 	dma_buf_put(dmabuf);
 }
+EXPORT_SYMBOL(qseecom_dmabuf_unmap);
 
 /* convert ion_fd to phys_adds and virt_addr*/
 static int qseecom_vaddr_map(int ion_fd,
@@ -9680,6 +9729,12 @@ static int qseecom_probe(struct platform_device *pdev)
 	if (rc)
 		goto exit_stop_kthreads;
 
+#ifdef CONFIG_HANDLE_LISTENER_EXIT
+	rc = register_reboot_notifier(&qseecom_reboot_nb);
+	if (rc)
+		pr_err("failed to register reboot notifier(%d)\n", rc);
+#endif
+
 	atomic_set(&qseecom.qseecom_state, QSEECOM_STATE_READY);
 	return 0;
 
@@ -9706,6 +9761,11 @@ static int qseecom_remove(struct platform_device *pdev)
 	int ret = 0;
 
 	atomic_set(&qseecom.qseecom_state, QSEECOM_STATE_NOT_READY);
+
+#ifdef CONFIG_HANDLE_LISTENER_EXIT
+	cancel_delayed_work_sync(&listener_exit_work);
+#endif
+
 	spin_lock_irqsave(&qseecom.registered_kclient_list_lock, flags);
 
 	list_for_each_entry_safe(kclient, kclient_tmp,

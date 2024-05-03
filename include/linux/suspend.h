@@ -10,6 +10,9 @@
 #include <linux/freezer.h>
 #include <asm/errno.h>
 
+#ifdef CONFIG_LGE_PM
+extern bool suspend_debug_irq_pin(void);
+#endif
 #ifdef CONFIG_VT
 extern void pm_set_vt_switch(int);
 #else

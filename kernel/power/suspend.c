@@ -32,6 +32,9 @@
 #include <linux/compiler.h>
 #include <linux/moduleparam.h>
 #include <linux/wakeup_reason.h>
+#ifdef CONFIG_DPM_WATCHDOG
+#include <linux/timer.h>
+#endif
 
 #include "power.h"
 
@@ -342,6 +345,34 @@ static int suspend_test(int level)
 	return 0;
 }
 
+#ifdef CONFIG_DPM_WATCHDOG
+struct suspend_watchdog {
+	struct timer_list   timer;
+};
+
+static void suspend_watchdog_handler(struct timer_list *t)
+{
+	panic("suspend watchdog timer expired!\n");
+}
+
+static void suspend_watchdog_set(struct suspend_watchdog *wd)
+{
+	struct timer_list *timer = &wd->timer;
+
+	timer_setup_on_stack(timer, suspend_watchdog_handler, 0);
+	timer->expires = jiffies + HZ * CONFIG_DPM_WATCHDOG_TIMEOUT * 3;
+	add_timer(timer);
+}
+
+static void suspend_watchdog_clear(struct suspend_watchdog *wd)
+{
+	struct timer_list *timer = &wd->timer;
+
+	del_timer_sync(timer);
+	destroy_timer_on_stack(timer);
+}
+#endif
+
 /**
  * suspend_prepare - Prepare for entering system sleep state.
  *
@@ -566,6 +597,9 @@ static void suspend_finish(void)
 static int enter_state(suspend_state_t state)
 {
 	int error;
+#ifdef CONFIG_DPM_WATCHDOG
+	struct suspend_watchdog wd;
+#endif
 
 	trace_suspend_resume(TPS("suspend_enter"), state, true);
 	if (state == PM_SUSPEND_TO_IDLE) {
@@ -594,7 +628,13 @@ static int enter_state(suspend_state_t state)
 
 	pm_pr_dbg("Preparing system for sleep (%s)\n", mem_sleep_labels[state]);
 	pm_suspend_clear_flags();
+#ifdef CONFIG_DPM_WATCHDOG
+	suspend_watchdog_set(&wd);
+#endif
 	error = suspend_prepare(state);
+#ifdef CONFIG_DPM_WATCHDOG
+	suspend_watchdog_clear(&wd);
+#endif
 	if (error)
 		goto Unlock;
 
@@ -615,6 +655,14 @@ static int enter_state(suspend_state_t state)
 	mutex_unlock(&system_transition_mutex);
 	return error;
 }
+#ifdef CONFIG_LGE_PM
+static bool debug_irq_pin = false;
+bool suspend_debug_irq_pin(void)
+{
+    return debug_irq_pin;
+}
+EXPORT_SYMBOL(suspend_debug_irq_pin);
+#endif
 
 /**
  * pm_suspend - Externally visible function for suspending the system.
@@ -629,7 +677,9 @@ int pm_suspend(suspend_state_t state)
 
 	if (state <= PM_SUSPEND_ON || state >= PM_SUSPEND_MAX)
 		return -EINVAL;
-
+#ifdef CONFIG_LGE_PM
+    debug_irq_pin = true;
+#endif
 	pr_info("suspend entry (%s)\n", mem_sleep_labels[state]);
 	error = enter_state(state);
 	if (error) {
@@ -639,6 +689,9 @@ int pm_suspend(suspend_state_t state)
 		suspend_stats.success++;
 	}
 	pr_info("suspend exit\n");
+#ifdef CONFIG_LGE_PM
+    debug_irq_pin = false;
+#endif
 	return error;
 }
 EXPORT_SYMBOL(pm_suspend);

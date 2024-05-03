@@ -16,6 +16,7 @@
 #include "cam_trace.h"
 #include "cam_debug_util.h"
 #include "cam_req_mgr_dev.h"
+#include <linux/delay.h> //LGE_CHANGE, fix the apply request fail, 2020-09-02, CST
 
 static struct cam_req_mgr_core_device *g_crm_core_dev;
 static struct cam_req_mgr_core_link g_links[MAXIMUM_LINKS_PER_SESSION];
@@ -1525,6 +1526,14 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 				__cam_req_mgr_notify_error_on_link(link, dev);
 				link->retry_cnt = 0;
 			}
+			//LGE_CHANGE_S, fix the apply request fail, 2020-09-02, CST
+			else{
+				if(rc == -EFAULT){
+					CAM_ERR_RATE_LIMIT(CAM_CRM, "FREESO __cam_req_mgr_send_req fail, wait for 5ms and retry");
+					usleep_range(5*1000, 5*1000 + 10); /* wait 5ms */
+				}
+			}
+			//LGE_CHANGE_E, fix the apply request fail, 2020-09-02, CST
 		} else
 			CAM_WARN(CAM_CRM,
 				"workqueue congestion, last applied idx:%d rd idx:%d",
@@ -2604,6 +2613,15 @@ static int cam_req_mgr_process_trigger(void *priv, void *data)
 	if (trigger_data->trigger == CAM_TRIGGER_POINT_SOF) {
 		idx = __cam_req_mgr_find_slot_for_req(in_q,
 			trigger_data->req_id);
+// LGE_CHANGE_S, [Stability] Fix "wait for swemaphore timeout" when enter camerea at swivel status, 2020-08-20 ,CST
+		if(idx == in_q->rd_idx)
+		{
+			trigger_data->req_id = trigger_data->req_id - 1;
+			CAM_ERR(CAM_ISP, "decrease last_bufdone_req_id because already came buferdone, change trigger_data->req_id = %lld  in_q->rd_idx =%lld", trigger_data->req_id,in_q->rd_idx);
+			idx = __cam_req_mgr_find_slot_for_req(in_q,
+			trigger_data->req_id);
+		}
+// LGE_CHANGE_E, [Stability] Fix "wait for swemaphore timeout" when enter camerea at swivel status, 2020-08-20 ,CST
 		if (idx >= 0) {
 			if (idx == in_q->last_applied_idx)
 				in_q->last_applied_idx = -1;
@@ -2622,8 +2640,13 @@ static int cam_req_mgr_process_trigger(void *priv, void *data)
 
 	spin_lock_bh(&link->link_state_spin_lock);
 
+#if 0 //qct_original
 	if (link->state < CAM_CRM_LINK_STATE_READY) {
 		CAM_WARN(CAM_CRM, "invalid link state:%d", link->state);
+#else
+	if (link->state < CAM_CRM_LINK_STATE_READY || link->watchdog == NULL) {
+		CAM_WARN(CAM_CRM, "invalid link state:%d link->watchdog=%s", link->state, link->watchdog ? "not null" : "null");
+#endif
 		spin_unlock_bh(&link->link_state_spin_lock);
 		rc = -EPERM;
 		goto release_lock;
@@ -4013,6 +4036,7 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 		}
 
 		mutex_lock(&link->lock);
+		mutex_lock(&link->req.lock); //LGE_CHANGE
 		if (control->ops == CAM_REQ_MGR_LINK_ACTIVATE) {
 			spin_lock_bh(&link->link_state_spin_lock);
 			link->state = CAM_CRM_LINK_STATE_READY;
@@ -4061,6 +4085,7 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 			CAM_ERR(CAM_CRM, "Invalid link control command");
 			rc = -EINVAL;
 		}
+		mutex_unlock(&link->req.lock); //LGE_CHANGE
 		mutex_unlock(&link->lock);
 	}
 	mutex_unlock(&g_crm_core_dev->crm_lock);

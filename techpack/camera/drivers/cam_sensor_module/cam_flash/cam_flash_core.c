@@ -11,6 +11,58 @@
 #include "cam_res_mgr_api.h"
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
+#if defined(CONFIG_MACH_LITO_CAYMANLM) || defined(CONFIG_MACH_LITO_WINGLM)
+#include <soc/qcom/lge/lge_regulator_mode_change.h>
+#endif
+
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/of.h>
+
+#define FLASH_TIMER_MAX 10
+#define FLASH_TIMER_MIN 0
+
+void cam_gpio_flash_on(struct cam_flash_ctrl *flash_ctrl)
+{
+	int ret = 0;
+	ret = pinctrl_select_state(
+		flash_ctrl->pinctrl,
+		flash_ctrl->gpio_state_flash_on);
+	if (ret)
+		CAM_ERR(CAM_FLASH, "cannot set pin to active state");
+}
+
+void cam_gpio_flash_off(struct cam_flash_ctrl *flash_ctrl)
+{
+	int ret = 0;
+	ret = pinctrl_select_state(
+		flash_ctrl->pinctrl,
+		flash_ctrl->gpio_state_flash_off);
+	if (ret)
+		CAM_ERR(CAM_FLASH, "cannot set pin to active state");
+}
+
+void cam_gpio_torch_on(struct cam_flash_ctrl *flash_ctrl)
+{
+	int ret = 0;
+	ret = pinctrl_select_state(
+		flash_ctrl->pinctrl,
+		flash_ctrl->gpio_state_torch_on);
+	if (ret)
+		CAM_ERR(CAM_FLASH, "cannot set pin to active state");
+}
+
+void cam_gpio_torch_off(struct cam_flash_ctrl *flash_ctrl)
+{
+	int ret = 0;
+	ret = pinctrl_select_state(
+		flash_ctrl->pinctrl,
+		flash_ctrl->gpio_state_torch_off);
+	if (ret)
+		CAM_ERR(CAM_FLASH, "cannot set pin to active state");
+}
+#endif
 
 static int cam_flash_set_gpio(struct cam_flash_ctrl *fctrl,
 	bool enable)
@@ -523,13 +575,32 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 		for (i = 0; i < flash_ctrl->torch_num_sources; i++) {
 			if (flash_ctrl->torch_trigger[i]) {
 				max_current = soc_private->torch_max_current[i];
+/*LGE_CHANGE_S, pmic torch current set to 300mA for pre-flash, elin.lee@lge.com*/
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+				if (flash_data->led_current_ma[i] > FLASH_TIMER_MIN &&
+                                        flash_data->led_current_ma[i] <= FLASH_TIMER_MAX)
+					curr = flash_data->led_current_ma[i];
+				else
+					curr = max_current;
+#else
 				if (flash_data->led_current_ma[i] <=
 					max_current)
 					curr = flash_data->led_current_ma[i];
 				else
 					curr = max_current;
+#endif
 			}
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+			CAM_ERR(CAM_FLASH, "led_current_ma[%d] = %d", i, flash_data->led_current_ma[i]);
+			CAM_ERR(CAM_FLASH, "torch_max_current[%d] = %d", i, soc_private->torch_max_current[i]);
+#endif
+/*LGE_CHANGE_E, pmic torch current set to 300mA for pre-flash, elin.lee@lge.com*/
+
+#ifdef CONFIG_MACH_LGE
+			CAM_ERR(CAM_FLASH, "Led_Torch[%d]: Current: %d",
+#else
 			CAM_DBG(CAM_FLASH, "Led_Torch[%d]: Current: %d",
+#endif
 				i, curr);
 			cam_res_mgr_led_trigger_event(
 				flash_ctrl->torch_trigger[i], curr);
@@ -543,13 +614,28 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 		for (i = 0; i < flash_ctrl->flash_num_sources; i++) {
 			if (flash_ctrl->flash_trigger[i]) {
 				max_current = soc_private->flash_max_current[i];
+/*LGE_CHANGE_S, pmic flash current set to 1200mA for main-flash, elin.lee@lge.com*/
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+				curr = max_current;
+#else
 				if (flash_data->led_current_ma[i] <=
 					max_current)
 					curr = flash_data->led_current_ma[i];
 				else
 					curr = max_current;
+#endif
 			}
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+			CAM_ERR(CAM_FLASH, "led_current_ma[%d] = %d", i, flash_data->led_current_ma[i]);
+			CAM_ERR(CAM_FLASH, "flash_max_current[%d] = %d", i, soc_private->flash_max_current[i]);
+#endif
+/*LGE_CHANGE_E, pmic flash current set to 1200mA for main-flash, elin.lee@lge.com*/
+
+#ifdef CONFIG_MACH_LGE
+			CAM_ERR(CAM_FLASH, "Led_Torch[%d]: Current: %d",
+#else
 			CAM_DBG(CAM_FLASH, "LED_Flash[%d]: Current: %d",
+#endif
 				i, curr);
 			cam_res_mgr_led_trigger_event(
 				flash_ctrl->flash_trigger[i], curr);
@@ -573,10 +659,25 @@ int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 		CAM_ERR(CAM_FLASH, "Flash control Null");
 		return -EINVAL;
 	}
+
+#if defined(CONFIG_MACH_LITO_CAYMANLM) || defined(CONFIG_MACH_LITO_WINGLM)
+		if (isEnable == true)
+		{
+			CAM_INFO(CAM_FLASH, "bob_mode_disable");
+			bob_mode_disable();
+			isEnable = false;
+		}
+#endif
+
 	CAM_DBG(CAM_FLASH, "Flash OFF Triggered");
 	if (flash_ctrl->switch_trigger)
 		cam_res_mgr_led_trigger_event(flash_ctrl->switch_trigger,
 			(enum led_brightness)LED_SWITCH_OFF);
+
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+	cam_gpio_flash_off(flash_ctrl);
+//	cam_gpio_torch_off(flash_ctrl);
+#endif
 
 	/* Turn Off Gpio Flash */
 	if (flash_ctrl->soc_info.gpio_data)
@@ -602,7 +703,9 @@ static int cam_flash_low(
 			cam_res_mgr_led_trigger_event(
 				flash_ctrl->flash_trigger[i],
 				LED_OFF);
-
+//#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+//	cam_gpio_torch_on(flash_ctrl);
+//#endif
 	rc = cam_flash_ops(flash_ctrl, flash_data,
 		CAMERA_SENSOR_FLASH_OP_FIRELOW);
 	if (rc)
@@ -622,12 +725,23 @@ static int cam_flash_high(
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_MACH_LITO_CAYMANLM) || defined(CONFIG_MACH_LITO_WINGLM)
+		if (isEnable == false)
+		{
+			CAM_INFO(CAM_FLASH, "bob_mode_enable");
+			bob_mode_enable();
+			isEnable = true;
+		}
+#endif
+
 	for (i = 0; i < flash_ctrl->torch_num_sources; i++)
 		if (flash_ctrl->torch_trigger[i])
 			cam_res_mgr_led_trigger_event(
 				flash_ctrl->torch_trigger[i],
 				LED_OFF);
-
+#if defined(CONFIG_MACH_LAGOON_ACEXLM)
+	cam_gpio_flash_on(flash_ctrl);
+#endif
 	rc = cam_flash_ops(flash_ctrl, flash_data,
 		CAMERA_SENSOR_FLASH_OP_FIREHIGH);
 	if (rc)
@@ -2006,6 +2120,15 @@ void cam_flash_shutdown(struct cam_flash_ctrl *fctrl)
 
 	if (fctrl->flash_state == CAM_FLASH_STATE_INIT)
 		return;
+
+#if defined(CONFIG_MACH_LITO_CAYMANLM) || defined(CONFIG_MACH_LITO_WINGLM)
+		if (isEnable == true)
+		{
+			CAM_INFO(CAM_FLASH, "bob_mode_disable");
+			bob_mode_disable();
+			isEnable = false;
+		}
+#endif
 
 	if ((fctrl->flash_state == CAM_FLASH_STATE_CONFIG) ||
 		(fctrl->flash_state == CAM_FLASH_STATE_START)) {

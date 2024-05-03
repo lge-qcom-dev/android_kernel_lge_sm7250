@@ -342,6 +342,7 @@ gen_headers_out_arm64 = [
     "linux/kfd_ioctl.h",
     "linux/kvm.h",
     "linux/l2tp.h",
+    "linux/lib_lge_triton.h",
     "linux/libc-compat.h",
     "linux/lightnvm.h",
     "linux/limits.h",

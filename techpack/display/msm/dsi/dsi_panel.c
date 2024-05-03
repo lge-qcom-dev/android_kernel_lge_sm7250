@@ -4,17 +4,32 @@
  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+#define pr_fmt(fmt)	"[Display][msm-dsi-panel:%s:%d] " fmt, __func__, __LINE__
+#endif
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/pwm.h>
+
 #include <video/mipi_display.h>
 
 #include "dsi_panel.h"
 #include "dsi_ctrl_hw.h"
 #include "dsi_parser.h"
 #include "sde_dbg.h"
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+#include "../lge/lge_dsi_panel.h"
+#include <soc/qcom/lge/board_lge.h>
+#include "../lge/factory/lge_factory.h"
+#include "../lge/brightness/lge_brightness_def.h"
+#include <linux/lge_panel_notify.h>
+
+extern bool lge_get_factory_boot(void);
+extern int lge_get_mfts_mode(void);
+#endif
 
 /**
  * topology is currently defined by a set of following 3 values:
@@ -44,6 +59,7 @@ enum dsi_dsc_ratio_type {
 
 static u32 dsi_dsc_rc_buf_thresh[] = {0x0e, 0x1c, 0x2a, 0x38, 0x46, 0x54,
 		0x62, 0x69, 0x70, 0x77, 0x79, 0x7b, 0x7d, 0x7e};
+
 
 /*
  * DSC 1.1
@@ -357,7 +373,11 @@ int dsi_panel_trigger_esd_attack(struct dsi_panel *panel)
 	return -EINVAL;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak int dsi_panel_reset(struct dsi_panel *panel)
+#else
 static int dsi_panel_reset(struct dsi_panel *panel)
+#endif
 {
 	int rc = 0;
 	struct dsi_panel_reset_config *r_config = &panel->reset_config;
@@ -426,7 +446,11 @@ exit:
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
+#else
 static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
+#endif
 {
 	int rc = 0;
 	struct pinctrl_state *state;
@@ -447,8 +471,30 @@ static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 	return rc;
 }
 
+#define PANEL_NAME_LENGTH 15
+char lge_panel_name[PANEL_NAME_LENGTH+1];
+bool panel_type_touch(char *panel_name){
 
+	if (panel_name == NULL) {
+		pr_err("input parameter is NULL\n");
+		return false;
+	}
+
+	DSI_ERR("[LGE] lge_panel_name= %s\n", lge_panel_name);
+
+	if(!strcmp(lge_panel_name, panel_name)) {
+		return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(panel_type_touch);
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak int dsi_panel_power_on(struct dsi_panel *panel)
+#else
 static int dsi_panel_power_on(struct dsi_panel *panel)
+#endif
 {
 	int rc = 0;
 
@@ -489,7 +535,11 @@ exit:
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak int dsi_panel_power_off(struct dsi_panel *panel)
+#else
 static int dsi_panel_power_off(struct dsi_panel *panel)
+#endif
 {
 	int rc = 0;
 
@@ -523,8 +573,14 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 
 	return rc;
 }
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+				enum dsi_cmd_set_type type)
+#else
 static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 				enum dsi_cmd_set_type type)
+#endif
 {
 	int rc = 0, i = 0;
 	ssize_t len;
@@ -652,10 +708,13 @@ static int dsi_panel_dcs_set_display_brightness_c2(struct mipi_dsi_device *dsi,
 	return mipi_dsi_dcs_write(dsi, 0xC2, payload, sizeof(payload));
 }
 
-
-
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak int dsi_panel_update_backlight(struct dsi_panel *panel,
+	u32 bl_lvl)
+#else
 static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
+#endif
 {
 	int rc = 0;
 	struct mipi_dsi_device *dsi;
@@ -741,6 +800,26 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 
 	if (panel->host_config.ext_bridge_mode)
 		return 0;
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	switch (panel->lge.fp_lhbm_mode) {
+		case LGE_FP_LHBM_READY:
+		case LGE_FP_LHBM_ON:
+		case LGE_FP_LHBM_SM_ON:
+		case LGE_FP_LHBM_FORCED_ON:
+			pr_info("Skip backlight setting for LHBM\n");
+			return 0;
+		break;
+		case LGE_FP_LHBM_OFF:
+		case LGE_FP_LHBM_SM_OFF:
+		case LGE_FP_LHBM_FORCED_OFF:
+			if (panel->lge.lhbm_ready_enable){
+				pr_info("Skip backlight setting (LHBM READY and OFF)\n");
+				return 0;
+			}
+		break;
+	}
+#endif
 
 	DSI_DEBUG("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
 	switch (bl->type) {
@@ -918,7 +997,14 @@ static int dsi_panel_parse_timing(struct dsi_mode_info *mode,
 		       rc);
 		goto error;
 	}
-
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	rc = utils->read_u32(utils->data,
+				"lge,mdss-dsi-panel-framerate-div",
+				&mode->refresh_rate_div);
+	if (rc) {
+			mode->refresh_rate_div = 0;
+	}
+#endif
 	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-panel-width",
 				  &mode->h_active);
 	if (rc) {
@@ -1858,7 +1944,11 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-off-commands-state",
 };
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
+#else
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
+#endif
 {
 	const u32 cmd_set_min_size = 7;
 	u32 count = 0;
@@ -1882,10 +1972,17 @@ static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+int dsi_panel_create_cmd_packets(const char *data,
+					u32 length,
+					u32 count,
+					struct dsi_cmd_desc *cmd)
+#else
 static int dsi_panel_create_cmd_packets(const char *data,
 					u32 length,
 					u32 count,
 					struct dsi_cmd_desc *cmd)
+#endif
 {
 	int rc = 0;
 	int i, j;
@@ -1926,8 +2023,11 @@ error_free_payloads:
 
 	return rc;
 }
-
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+void dsi_panel_destroy_cmd_packets(struct dsi_panel_cmd_set *set)
+#else
 static void dsi_panel_destroy_cmd_packets(struct dsi_panel_cmd_set *set)
+#endif
 {
 	u32 i = 0;
 	struct dsi_cmd_desc *cmd;
@@ -1943,8 +2043,13 @@ static void dsi_panel_dealloc_cmd_packets(struct dsi_panel_cmd_set *set)
 	kfree(set->cmds);
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+int dsi_panel_alloc_cmd_packets(struct dsi_panel_cmd_set *cmd,
+					u32 packet_count)
+#else
 static int dsi_panel_alloc_cmd_packets(struct dsi_panel_cmd_set *cmd,
 					u32 packet_count)
+#endif
 {
 	u32 size;
 
@@ -2252,7 +2357,6 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel)
 		DSI_ERR("[%s] failed get reset gpio, rc=%d\n", panel->name, rc);
 		goto error;
 	}
-
 	panel->reset_config.disp_en_gpio = utils->get_named_gpio(utils->data,
 						"qcom,5v-boost-gpio",
 						0);
@@ -3008,6 +3112,13 @@ static int dsi_panel_parse_partial_update_caps(struct dsi_display_mode *mode,
 
 	memset(roi_caps, 0, sizeof(*roi_caps));
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	if (lge_get_factory_boot() || lge_get_mfts_mode()) {
+		pr_info("partial update disabled for factory\n");
+		return 0;
+	}
+#endif
+
 	data = utils->get_property(utils->data,
 		"qcom,partial-update-enabled", NULL);
 	if (data) {
@@ -3398,6 +3509,11 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 				"qcom,mdss-dsi-panel-physical-type", NULL);
 	if (panel_physical_type && !strcmp(panel_physical_type, "oled"))
 		panel->panel_type = DSI_DISPLAY_PANEL_TYPE_OLED;
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	snprintf(lge_panel_name, PANEL_NAME_LENGTH, "%s", panel_physical_type);
+#endif
+
 	rc = dsi_panel_parse_host_config(panel);
 	if (rc) {
 		DSI_ERR("failed to parse host configuration, rc=%d\n",
@@ -3470,6 +3586,9 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	if (rc)
 		DSI_DEBUG("failed to parse esd config, rc=%d\n", rc);
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	lge_dsi_panel_get(panel, of_node);
+#endif
 	panel->power_mode = SDE_MODE_DPMS_OFF;
 	drm_panel_init(&panel->drm_panel);
 	panel->drm_panel.dev = &panel->mipi_device.dev;
@@ -3489,6 +3608,9 @@ error:
 
 void dsi_panel_put(struct dsi_panel *panel)
 {
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	lge_dsi_panel_put(panel);
+#endif
 	drm_panel_remove(&panel->drm_panel);
 
 	/* free resources allocated for ESD check */
@@ -3551,6 +3673,13 @@ int dsi_panel_drv_init(struct dsi_panel *panel,
 		goto error_gpio_release;
 	}
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	rc = lge_dsi_panel_drv_init(panel);
+	if (rc) {
+		goto error_gpio_release;
+	}
+#endif
+
 	goto exit;
 
 error_gpio_release:
@@ -3574,6 +3703,10 @@ int dsi_panel_drv_deinit(struct dsi_panel *panel)
 	}
 
 	mutex_lock(&panel->panel_lock);
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+	lge_dsi_panel_drv_deinit(panel);
+#endif
 
 	rc = dsi_panel_bl_unregister(panel);
 	if (rc)
@@ -3609,7 +3742,9 @@ int dsi_panel_validate_mode(struct dsi_panel *panel,
 
 int dsi_panel_get_mode_count(struct dsi_panel *panel)
 {
+#if !defined(CONFIG_LGE_DISPLAY_MULTI_MODE_FOR_VIDEO_MODE)
 	const u32 SINGLE_MODE_SUPPORT = 1;
+#endif
 	struct dsi_parser_utils *utils;
 	struct device_node *timings_np, *child_np;
 	int num_dfps_rates, num_bit_clks;
@@ -3641,6 +3776,7 @@ int dsi_panel_get_mode_count(struct dsi_panel *panel)
 		goto error;
 	}
 
+#if !defined(CONFIG_LGE_DISPLAY_MULTI_MODE_FOR_VIDEO_MODE)
 	/* No multiresolution support is available for video mode panels.
 	 * Multi-mode is supported for video mode during POMS is enabled.
 	 */
@@ -3648,6 +3784,7 @@ int dsi_panel_get_mode_count(struct dsi_panel *panel)
 		!panel->host_config.ext_bridge_mode &&
 		!panel->panel_mode_switch_enabled)
 		count = SINGLE_MODE_SUPPORT;
+#endif
 
 	panel->num_timing_nodes = count;
 	dsi_for_each_child_node(timings_np, child_np) {
@@ -3992,6 +4129,9 @@ int dsi_panel_get_host_cfg_for_mode(struct dsi_panel *panel,
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_pre_prepare(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4055,6 +4195,9 @@ error:
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_set_lp1(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4088,6 +4231,9 @@ exit:
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_set_lp2(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4110,6 +4256,9 @@ exit:
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_set_nolp(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4135,11 +4284,15 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
+
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_prepare(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4456,12 +4609,12 @@ int dsi_panel_post_switch(struct dsi_panel *panel)
 int dsi_panel_enable(struct dsi_panel *panel)
 {
 	int rc = 0;
-
 	if (!panel) {
 		DSI_ERR("Invalid params\n");
 		return -EINVAL;
 	}
 
+	pr_err("[%s] ++\n", panel->name);
 	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
@@ -4471,9 +4624,13 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	else
 		panel->panel_initialized = true;
 	mutex_unlock(&panel->panel_lock);
+	pr_err("[%s] --\n", panel->name);
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_post_enable(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4528,6 +4685,7 @@ int dsi_panel_disable(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	pr_err("[%s] ++\n", panel->name);
 	mutex_lock(&panel->panel_lock);
 
 	/* Avoid sending panel off commands when ESD recovery is underway */
@@ -4558,9 +4716,13 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	panel->power_mode = SDE_MODE_DPMS_OFF;
 
 	mutex_unlock(&panel->panel_lock);
+	pr_err("[%s] --\n", panel->name);
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_unprepare(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4584,6 +4746,9 @@ error:
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
+__weak
+#endif
 int dsi_panel_post_unprepare(struct dsi_panel *panel)
 {
 	int rc = 0;

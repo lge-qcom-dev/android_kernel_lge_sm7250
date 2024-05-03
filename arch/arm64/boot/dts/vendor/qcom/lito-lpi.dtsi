@@ -1287,7 +1287,7 @@
 				};
 			};
 		};
-
+/* Disable WSA speaker amp
 		wsa_swr_clk_pin {
 			wsa_swr_clk_sleep: wsa_swr_clk_sleep {
 				mux {
@@ -1347,7 +1347,7 @@
 				};
 			};
 		};
-
+*/
 		tx_swr_clk_sleep: tx_swr_clk_sleep {
 			mux {
 				pins = "gpio0";

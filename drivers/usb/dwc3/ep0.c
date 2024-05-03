@@ -28,7 +28,11 @@
 #include "gadget.h"
 #include "io.h"
 
+#ifdef CONFIG_LGE_USB
+static bool enable_dwc3_u1u2 = true;
+#else
 static bool enable_dwc3_u1u2;
+#endif
 module_param(enable_dwc3_u1u2, bool, 0644);
 MODULE_PARM_DESC(enable_dwc3_u1u2, "Enable support for U1U2 low power modes");
 

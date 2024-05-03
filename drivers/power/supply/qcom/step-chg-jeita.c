@@ -13,6 +13,9 @@
 #include <linux/slab.h>
 #include <linux/pmic-voter.h>
 #include "step-chg-jeita.h"
+#ifdef CONFIG_MACH_LITO_CAYMANLM_LAO_COM
+#include <soc/qcom/lge/board_lge.h>
+#endif
 
 #define STEP_CHG_VOTER		"STEP_CHG_VOTER"
 #define JEITA_VOTER		"JEITA_VOTER"
@@ -239,8 +242,17 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 	u32 jeita_scaling_min_fcc_ua = 0;
 	union power_supply_propval prop = {0, };
 
+#ifdef CONFIG_MACH_LITO_CAYMANLM_LAO_COM
+	if(HW_SKU_NA_CDMA_VZW == lge_get_sku_carrier())
+		handle = of_get_property(chip->dev->of_node,
+				"qcom,vzw-battery-data", NULL);
+	else
+		handle = of_get_property(chip->dev->of_node,
+				"qcom,battery-data", NULL);
+#else
 	handle = of_get_property(chip->dev->of_node,
 			"qcom,battery-data", NULL);
+#endif
 	if (!handle) {
 		pr_debug("ignore getting sw-jeita/step charging settings from profile\n");
 		return 0;
@@ -442,17 +454,17 @@ static void get_config_work(struct work_struct *work)
 	chip->config_is_read = true;
 
 	for (i = 0; i < MAX_STEP_CHG_ENTRIES; i++)
-		pr_debug("step-chg-cfg: %duV(SoC) ~ %duV(SoC), %duA\n",
+		pr_debug("step-chg-cfg: %d uV(SoC) ~ %d uV(SoC), %d uA\n",
 			chip->step_chg_config->fcc_cfg[i].low_threshold,
 			chip->step_chg_config->fcc_cfg[i].high_threshold,
 			chip->step_chg_config->fcc_cfg[i].value);
 	for (i = 0; i < MAX_STEP_CHG_ENTRIES; i++)
-		pr_debug("jeita-fcc-cfg: %ddecidegree ~ %ddecidegre, %duA\n",
+		pr_debug("jeita-fcc-cfg: %ddecidegree ~ %ddecidegre, %d uA\n",
 			chip->jeita_fcc_config->fcc_cfg[i].low_threshold,
 			chip->jeita_fcc_config->fcc_cfg[i].high_threshold,
 			chip->jeita_fcc_config->fcc_cfg[i].value);
 	for (i = 0; i < MAX_STEP_CHG_ENTRIES; i++)
-		pr_debug("jeita-fv-cfg: %ddecidegree ~ %ddecidegre, %duV\n",
+		pr_debug("jeita-fv-cfg: %ddecidegree ~ %ddecidegre, %d uV\n",
 			chip->jeita_fv_config->fv_cfg[i].low_threshold,
 			chip->jeita_fv_config->fv_cfg[i].high_threshold,
 			chip->jeita_fv_config->fv_cfg[i].value);
