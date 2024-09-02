@@ -5430,6 +5430,7 @@ static ssize_t store_longpress(struct device *dev,
 	int end_x = 0;
 	int end_y = 0;
 	int ret = 0;
+	int lpwg_param[4];
 
 	TOUCH_TRACE();
 
@@ -5461,6 +5462,24 @@ static ssize_t store_longpress(struct device *dev,
 		}
 	} else {
 		d->lpwg_longpress.enable = false;
+	}
+
+	/*
+		Sometimes longpress is enabled when the panel is in deep sleep.
+		We need to enable the panel in this case.
+		Construct parameters based on what LPWG_UPDATE_ALL sets in sw42902_lpwg().
+		We need these to be what is currently set in order to not break other things, i.e. double tap.
+	*/
+	lpwg_param[0] = ts->lpwg.mode;
+	lpwg_param[1] = ts->lpwg.screen;
+	lpwg_param[2] = ts->lpwg.sensor;
+	lpwg_param[3] = ts->lpwg.qcover;
+
+	ret = sw42902_lpwg(dev, LPWG_UPDATE_ALL, lpwg_param);
+	if (ret < 0) {
+		TOUCH_E("sw42902_lpwg() failed (ret: %d)\n", ret);
+		mutex_unlock(&ts->lock);
+		return count;
 	}
 
 	if (atomic_read(&ts->state.sleep) == IC_DEEP_SLEEP) {
