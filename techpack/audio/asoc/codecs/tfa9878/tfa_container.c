@@ -1257,21 +1257,6 @@ static enum tfa98xx_error tfa_run_write_filter(struct tfa_device *tfa,
 				sizeof(data), data);
 	}
 
-#ifdef TFA_DEBUG
-	if (tfa->verbose) {
-		if (bq->aa.index == 13)
-			pr_debug("=%d,%.0f,%.2f\n",
-				bq->in.type, bq->in.cut_off_freq,
-				bq->in.leakage);
-		else if (bq->aa.index >= 10 && bq->aa.index <= 12)
-			pr_debug("=%d,%.0f,%.1f,%.1f\n", bq->aa.type,
-				bq->aa.cut_off_freq, bq->aa.ripple_db,
-				bq->aa.rolloff);
-		else
-			pr_debug("unsupported filter index\n");
-	}
-#endif
-
 	/* Because we can load the same filters multiple times
 	 * For example: When we switch profile we re-write in operating mode.
 	 * We then need to remember the index (primary, secondary or both)
