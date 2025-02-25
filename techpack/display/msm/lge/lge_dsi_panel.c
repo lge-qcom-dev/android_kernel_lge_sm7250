@@ -1418,7 +1418,7 @@ void lge_mdss_panel_dead_work(struct work_struct *work)
 	lge_mdss_panel_dead_notify(display);
 }
 
-void lge_mdss_report_panel_dead()
+void lge_mdss_report_panel_dead(void)
 {
 	struct dsi_display *display_prim = NULL;
 	struct dsi_display *display_sec = NULL;
