@@ -50,7 +50,7 @@
 				&sls11hc0_ds_sw_sel_active>;
 
 		fpga-mgr = <&fpga_mgr0>;
-		firmware-name = "lattice/u11hc_spi_lge_des_impl_1.bin";
+		firmware-name = "lattice/u11hc_spi_lge_des_impl_1.fw";
 
 		spi-max-frequency = <1920000>;
 
