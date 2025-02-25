@@ -7049,10 +7049,13 @@ static void typec_src_removal(struct smb_charger *chg)
             smblib_dbg(chg, PR_MISC, "vote SW_ICL_MAX_VOTER : 2000\n");
             vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
                         is_flash_active(chg) ? SDP_CURRENT_UA : 2000);
-    } else
+    } else {
 #endif
 	vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
 			is_flash_active(chg) ? SDP_CURRENT_UA : SDP_100_MA);
+#ifdef CONFIG_LGE_USB
+	}
+#endif
 	vote(chg->usb_icl_votable, PD_VOTER, false, 0);
 	vote(chg->usb_icl_votable, USB_PSY_VOTER, false, 0);
 	vote(chg->usb_icl_votable, DCP_VOTER, false, 0);
