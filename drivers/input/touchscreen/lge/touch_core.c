@@ -822,6 +822,11 @@ static int touch_init_pm(struct touch_core_data *ts)
 	ts->driver->init_pm(ts->dev);
 	return fb_register_client(&ts->fb_notif);
 }
+#else
+static inline int touch_init_pm(struct touch_core_data *ts)
+{
+	return 0;
+}
 #endif
 
 static struct bus_type touch_uevent_subsys = {
