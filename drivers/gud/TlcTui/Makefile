@@ -14,7 +14,7 @@
 # Makefile for the Kinibi trusted UI driver
 #
 
-GUD_ROOT_FOLDER := drivers/gud/
+GUD_ROOT_FOLDER := $(srctree)/drivers/gud/
 
 # add our modules to kernel.
 obj-$(CONFIG_TRUSTONIC_TRUSTED_UI) += t-base-tui.o
@@ -29,7 +29,7 @@ ccflags-$(CONFIG_TRUSTONIC_TEE_DEBUG) += -DDEBUG
 
 # MobiCore Driver includes
 ccflags-y += -I$(GUD_ROOT_FOLDER)/MobiCoreDriver/public
-ccflags-y += -Idrivers/misc/
+ccflags-y += -I$(srctree)/drivers/misc/
 
 # MobiCore TlcTui required includes
 ccflags-y += -I$(GUD_ROOT_FOLDER)/TlcTui/inc \
