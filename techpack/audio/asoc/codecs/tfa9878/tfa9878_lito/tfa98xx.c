@@ -2858,6 +2858,36 @@ EXPORT_SYMBOL(tfa_ext_register);
 #endif
 
 #if defined(TFA_SET_EXT_INTERNALLY)
+    #if defined(QPLATFORM)
+        extern int afe_tfadsp_write(void *dev, int buf_size, const char *buf);
+        extern int afe_tfadsp_read(void *dev, int buf_size, unsigned char *buf);
+
+        int tfa_afe_dsp_msg(struct tfa_device *tfa, int length, const char *buf) {
+            int ret = afe_tfadsp_write((void *)tfa, length, buf);
+            return (ret == 0) ? TFA98XX_ERROR_OK : TFA98XX_ERROR_DSP_NOT_RUNNING;
+        }
+
+        enum tfa98xx_error tfa_afe_dsp_msg_read(struct tfa_device *tfa, int length, unsigned char *buf) {
+            int ret = afe_tfadsp_read((void *)tfa, length, buf);
+            return (ret == 0) ? TFA98XX_ERROR_OK : TFA98XX_ERROR_DSP_NOT_RUNNING;
+        }
+    #elif defined(MPLATFORM)
+        extern int ipi_tfadsp_write(void *dev, int buf_size, const char *buf);
+        extern int ipi_tfadsp_read(void *dev, int buf_size, unsigned char *buf);
+
+        int tfa_ipi_dsp_msg(struct tfa_device *tfa, int length, const char *buf) {
+            int ret = ipi_tfadsp_write((void *)tfa, length, buf);
+            return (ret == 0) ? TFA98XX_ERROR_OK : TFA98XX_ERROR_DSP_NOT_RUNNING;
+        }
+
+        enum tfa98xx_error tfa_ipi_dsp_msg_read(struct tfa_device *tfa, int length, unsigned char *buf) {
+            int ret = ipi_tfadsp_read((void *)tfa, length, buf);
+            return (ret == 0) ? TFA98XX_ERROR_OK : TFA98XX_ERROR_DSP_NOT_RUNNING;
+        }
+    #endif
+#endif
+
+#if defined(TFA_SET_EXT_INTERNALLY)
 #ifdef MPLATFORM
 enum tfa98xx_error ipi_tfadsp_write(struct tfa_device *tfa,
 	int length, const char *buf)
@@ -3118,12 +3148,12 @@ tfa98xx_container_loaded(const struct firmware *cont, void *context)
 /* TEMPORARY, until TFA device is probed before tfa_ext is called */
 #if defined(TFA_SET_EXT_INTERNALLY)
 #ifdef QPLATFORM
-	tfa98xx->tfa->dev_ops.dsp_msg = (dsp_send_message_t)afe_tfadsp_write;
-	tfa98xx->tfa->dev_ops.dsp_msg_read = (dsp_read_message_t)afe_tfadsp_read;
+	tfa98xx->tfa->dev_ops.dsp_msg = tfa_afe_dsp_msg;
+	tfa98xx->tfa->dev_ops.dsp_msg_read = tfa_afe_dsp_msg_read;
 #endif
 #ifdef MPLATFORM
-	tfa98xx->tfa->dev_ops.dsp_msg = (dsp_send_message_t)ipi_tfadsp_write;
-	tfa98xx->tfa->dev_ops.dsp_msg_read = (dsp_read_message_t)ipi_tfadsp_read;
+	tfa98xx->tfa->dev_ops.dsp_msg = tfa_ipi_dsp_msg;
+	tfa98xx->tfa->dev_ops.dsp_msg_read = tfa_ipi_dsp_msg_read;
 #endif
 #endif
 
