@@ -31,13 +31,13 @@ ccflags-$(CONFIG_SENSORS_TCS3407)	+= -DAMS_BIN_2048_MODE1
 #
 # Include Paths
 #
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)/osal_linux_input/include
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)/tcs3407_dev_ctrl_block/include
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)/dev_com_iface/include
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)/algorithm_als/include
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)/ccb_als/include
-ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(src)/ccb_irbeam/include
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)/osal_linux_input/include
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)/tcs3407_dev_ctrl_block/include
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)/dev_com_iface/include
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)/algorithm_als/include
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)/ccb_als/include
+ccflags-$(CONFIG_SENSORS_TCS3407)	+= -I$(srctree)/$(src)/ccb_irbeam/include
 
 #
 # Object Artifacts
