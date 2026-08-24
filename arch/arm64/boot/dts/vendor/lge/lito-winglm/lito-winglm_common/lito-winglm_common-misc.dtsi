@@ -9,7 +9,7 @@
 		label = "gpio-keys";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&key_vol_up_default &swivel_start_gpio_default &swivel_end_gpio_default>;
+		pinctrl-0 = <&key_vol_up_default>;
 		vol_up {
 			label = "volume_up";
 			gpios = <&pm8150l_gpios 5 GPIO_ACTIVE_LOW>;
@@ -19,6 +19,14 @@
 			debounce-interval = <15>;
 			linux,can-disable;
 		};
+	};
+
+	gpio_keys_swivel {
+		compatible = "gpio-keys";
+		label = "winglm-swivel";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&swivel_start_gpio_default &swivel_end_gpio_default>;
 
 		swivel_start {
 			label = "swivel_start";
