@@ -428,7 +428,7 @@ static void dw7914_dump_registers(struct dw7914_dev *dev)
 
 #if defined(CONFIG_MACH_LGE)
 
-static void setupWaveformHeader() {
+static void setupWaveformHeader(void) {
 	{
 		u8 command[] = {
 			DW7914_MODE, DW7914_MODE_MEMORY,
@@ -461,7 +461,7 @@ static void setupWaveformHeader() {
 	}
 }
 
-static void setupWaveformData() {
+static void setupWaveformData(void) {
 	{
 		u8 command[] = {
 			DW7914_MODE, DW7914_MODE_MEMORY,
@@ -493,7 +493,7 @@ static void setupWaveformData() {
 	}
 }
 
-static void setupTrigger() {
+static void setupTrigger(void) {
 	u8 command[] = {
 		DW7914_TRIG_CTRL, DW7914_TRIG_CTRL_DEFAULT
 				| DW7914_TRIG_CTRL_TRIG1_MODE
@@ -618,7 +618,7 @@ static void dw7914_poweron(int mode)
 static struct workqueue_struct *test_workqueue;
 static struct delayed_work *test_work;
 
-static void dw7914_trigger_test_clean() {
+static void dw7914_trigger_test_clean(struct work_struct *work) {
 	u8 command[] = {
 		DW7914_MODE, DW7914_MODE_RTP,
 	};
@@ -626,7 +626,7 @@ static void dw7914_trigger_test_clean() {
 	i2c_commands(dw7914->i2c, msgs, command, sizeof(command));
 }
 
-static void dw7914_trigger_test() {
+static void dw7914_trigger_test(void) {
 	u8 command[] = {
 		DW7914_MODE, DW7914_MODE_MEMORY,
 		0x0f, 0x06,
