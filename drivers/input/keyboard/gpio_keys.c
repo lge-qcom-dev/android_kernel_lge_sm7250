@@ -300,7 +300,7 @@ static ssize_t cover_recovery_req_store(struct device *dev, struct device_attrib
 
 #if IS_ENABLED(CONFIG_LGE_SWIVEL_HALLIC_SUPPORT)
 static ssize_t swivel_event_refresh_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count){
-	int i, current_state;
+	int i, current_state, lid_state;
 	ssize_t ret = strnlen(buf, PAGE_SIZE);
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
@@ -311,16 +311,17 @@ static ssize_t swivel_event_refresh_store(struct device *dev, struct device_attr
 
 		if (!strncmp(bdata->button->desc, "swivel_end", 10) || !strncmp(bdata->button->desc, "swivel_start", 12)) {
 			current_state = swivel_dev.state;
+			lid_state = current_state == SWIVEL_OPENED ? 0 : 1;
 			if (swivel_dev.state) {
 				hallic_set_state(&swivel_dev, 0);
 				hallic_set_state(&swivel_dev, current_state);
-				input_event(input, EV_SW, *bdata->code, 0);
-				input_event(input, EV_SW, *bdata->code, current_state);
+				input_event(input, EV_SW, *bdata->code, !lid_state);
+				input_event(input, EV_SW, *bdata->code, lid_state);
 			} else {
 				hallic_set_state(&swivel_dev, 1);
 				hallic_set_state(&swivel_dev, current_state);
-				input_event(input, EV_SW, *bdata->code, 1);
-				input_event(input, EV_SW, *bdata->code, current_state);
+				input_event(input, EV_SW, *bdata->code, !lid_state);
+				input_event(input, EV_SW, *bdata->code, lid_state);
 			}
 			pr_info("%s : code(%d), value(%d)\n", __func__, bdata->button->code, swivel_dev.state);
 			input_sync(input);
@@ -352,7 +353,8 @@ static ssize_t swivel_event_injector_store(struct device *dev, struct device_att
 			if (swivel_dev.state != event) {
 				hallic_set_state(&swivel_dev, event);
 				swivel_dev.state = event;
-				input_event(input, EV_SW, *bdata->code, event);
+				input_event(input, EV_SW, *bdata->code,
+						event == SWIVEL_OPENED ? 0 : 1);
 				pr_info("%s : code(%d), value(%d)\n", __func__, bdata->button->code, event);
 				input_sync(input);
 			}
@@ -635,10 +637,6 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 					pr_info("[Display] swivel_start changed dev.state from %d to %d\n", swivel_dev.state, state);
 					if (swivel_dev.state > 0 && state > 0) {
 						hallic_set_state(&swivel_dev, 0);
-						input_event(input, type, *bdata->code, 0);
-						pr_info("[Display] swivel_start send 0 state to avoid ingnoring by input event device\n");
-						pr_info("gpio_keys_report_event: code(%d), value(0)\n", button->code);
-						input_sync(input);
 					}
 					hallic_set_state(&swivel_dev, state);
 					swivel_dev.state = state;
@@ -682,10 +680,6 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 					pr_info("[Display] swivel_end changed dev.state from %d to %d\n", swivel_dev.state, state);
 					if (swivel_dev.state > 0 && state > 0) {
 						hallic_set_state(&swivel_dev, 0);
-						input_event(input, type, *bdata->code, 0);
-						pr_info("[Display] swivel_end send 0 state to avoid ignoring by input event device\n");
-						pr_info("gpio_keys_report_event: code(%d), value(0)\n", button->code);
-						input_sync(input);
 					}
 					hallic_set_state(&swivel_dev, state);
 					swivel_dev.state = state;
@@ -709,6 +703,10 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 				return;
 			}
 		}
+
+		if (!strncmp(bdata->button->desc, "swivel_start", 12) ||
+				!strncmp(bdata->button->desc, "swivel_end", 10))
+			state = swivel_dev.state == SWIVEL_OPENED ? 0 : 1;
 #endif
 
 #if defined(CONFIG_LGE_DUAL_SCREEN)
