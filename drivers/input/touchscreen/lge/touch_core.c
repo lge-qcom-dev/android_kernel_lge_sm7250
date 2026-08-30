@@ -906,6 +906,17 @@ void touch_send_uevent(struct touch_core_data *ts, int type)
 
 	TOUCH_TRACE();
 
+	if (type == TOUCH_UEVENT_KNOCK) {
+		pm_wakeup_event(ts->dev, 3000);
+		input_report_key(ts->input, KEY_WAKEUP, 1);
+		TOUCH_I("Simulate power button depress\n");
+		input_sync(ts->input);
+		input_report_key(ts->input, KEY_WAKEUP, 0);
+		TOUCH_I("Simulate power button release\n");
+		input_sync(ts->input);
+		return;
+	}
+
 	if (type == TOUCH_UEVENT_DS_UPDATE_STATE) {
 		kobject_uevent_env(&device_uevent_touch.kobj,
 				KOBJ_CHANGE, uevent_str[type]);
@@ -943,14 +954,6 @@ void touch_send_uevent(struct touch_core_data *ts, int type)
 		}
 	}
 	switch (type) {
-		case TOUCH_UEVENT_KNOCK:
-			input_report_key(ts->input, KEY_WAKEUP, 1);
-			TOUCH_I("Simulate power button depress\n");
-			input_sync(ts->input);
-			input_report_key(ts->input, KEY_WAKEUP, 0);
-			TOUCH_I("Simulate power button release\n");
-			input_sync(ts->input);
-			break;
 		case TOUCH_UEVENT_SWIPE_DOWN:
 			TOUCH_I("Swipe DOWN reported\n");
 			input_report_key(ts->input, KEY_GESTURE_SWIPE_DOWN, 1);
