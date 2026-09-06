@@ -238,7 +238,7 @@ static int hash_path_and_data(struct task_struct *task, u8 *hash,
 	if (!buf)
 		return -ENOMEM;
 
-	down_read(&mm->mmap_sem);
+	down_read(&mm->mmap_lock);
 	if (!mm->exe_file) {
 		ret = -ENOENT;
 		goto end;
@@ -282,7 +282,7 @@ static int hash_path_and_data(struct task_struct *task, u8 *hash,
 	crypto_free_hash(desc.tfm);
 
 end:
-	up_read(&mm->mmap_sem);
+	up_read(&mm->mmap_lock);
 	free_page((unsigned long)buf);
 
 	return ret;
