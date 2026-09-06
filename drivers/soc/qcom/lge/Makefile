@@ -1,4 +1,4 @@
-ccflags-y := -Iinclude/drm -Itechpack/display/msm -Idrivers/soc/qcom/lge/power
+ccflags-y := -I$(srctree)/include/drm -I$(srctree)/techpack/display/msm -I$(srctree)/drivers/soc/qcom/lge/power
 
 obj-$(CONFIG_MACH_LGE) += devices_lge.o
 obj-$(CONFIG_LGE_BOOTLOADER_LOG) += lge_bootloader_log.o
