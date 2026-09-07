@@ -902,13 +902,13 @@ static DEVICE_ATTR(ram_len, 0660,
 static DEVICE_ATTR(ram_data, 0660,
 		dw7914_show_data, dw7914_store_data);
 
+#define FILE_NAME_BUF_LEN 50
 #define PATTERN_FILEPATH "/vendor/etc/pattern"
 static ssize_t dw7914_show_pattern_update(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *c = dw7914->i2c;
 	struct file *fp = NULL;
-	const int buf_len = 50;
 	const u8 RAM_ADDR = 0x46;
 	int i = 0;
 	int cnt = 0;
@@ -916,7 +916,7 @@ static ssize_t dw7914_show_pattern_update(struct device *dev,
 	int pattern_num = 1;
 	int pattern_start = 0;
 	int pattern_length = 0;
-	char file_name_buf[buf_len];
+	char file_name_buf[FILE_NAME_BUF_LEN];
 	char read_buf[3];
 	u8 pattern_header[8];
 	u8 pattern_data[23];
@@ -927,7 +927,7 @@ static ssize_t dw7914_show_pattern_update(struct device *dev,
 	set_fs(KERNEL_DS);
 
 	while (pattern_num < 10) {
-		snprintf(file_name_buf, buf_len, "%s%d", PATTERN_FILEPATH, pattern_num);
+		snprintf(file_name_buf, FILE_NAME_BUF_LEN, "%s%d", PATTERN_FILEPATH, pattern_num);
 		cnt += sprintf(buf + cnt, "Trying to open %s\n", file_name_buf);
 
 		fp = filp_open(file_name_buf, O_RDONLY, 0);
