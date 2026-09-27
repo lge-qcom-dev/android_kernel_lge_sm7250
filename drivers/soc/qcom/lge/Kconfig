@@ -30,7 +30,7 @@ config MACH_LITO_CAYMANLM_LDU
         Support for the Qualcomm LITO(SM7250) CAYMANLM_LDU device.
 
 config MACH_LITO_CAYMANLM_LAO_COM
-    bool " LITO_CAYMANLM_LAO_COM"
+    bool "LITO_CAYMANLM_LAO_COM"
     depends on ARCH_LITO
     select MACH_LGE
     select LGE_DM_VERITY_RECOVERY
@@ -38,7 +38,7 @@ config MACH_LITO_CAYMANLM_LAO_COM
         Support for the Qualcomm LITO(SM7250) CAYMANLM_LAO_COM device.
 
 config MACH_LITO_CAYMANLM_DCM_JP
-    bool " LITO_CAYMANLM_DCM_JP"
+    bool "LITO_CAYMANLM_DCM_JP"
     depends on ARCH_LITO
     select MACH_LGE
     select LGE_DM_VERITY_RECOVERY
@@ -46,7 +46,7 @@ config MACH_LITO_CAYMANLM_DCM_JP
         Support for the Qualcomm LITO(SM7250) CAYMANLM_DCM_JP device.
 
 config MACH_LITO_CAYMANLM_SB_JP
-    bool " LITO_CAYMANLM_SB_JP"
+    bool "LITO_CAYMANLM_SB_JP"
     depends on ARCH_LITO
     select MACH_LGE
     select LGE_DM_VERITY_RECOVERY
@@ -62,7 +62,7 @@ config MACH_LITO_WINGLM
         Support for the Qualcomm LITO(SM7250) WINGLM device.
 
 config MACH_LITO_WINGLM_LAO_COM
-    bool " LITO_WINGLM_LAO_COM"
+    bool "LITO_WINGLM_LAO_COM"
     depends on ARCH_LITO
     select MACH_LGE
     select LGE_DM_VERITY_RECOVERY
@@ -78,7 +78,7 @@ config MACH_LITO_VICTORIALM
         Support for the Qualcomm LITO(SM7250) VICTORIALM device.
 
 config MACH_LITO_VICTORIALM_LAO_COM
-    bool " LITO_VICTORIALM_LAO_COM"
+    bool "LITO_VICTORIALM_LAO_COM"
     depends on ARCH_LITO
     select MACH_LGE
     select LGE_DM_VERITY_RECOVERY
@@ -94,7 +94,7 @@ config MACH_LITO_ACELM
         Support for the Qualcomm LITO(SM7250) ACELM device.
 
 config MACH_LITO_ACELM_LAO_COM
-    bool " LITO_ACELM_LAO_COM"
+    bool "LITO_ACELM_LAO_COM"
     depends on ARCH_LITO
     select MACH_LGE
     select LGE_DM_VERITY_RECOVERY
