@@ -5,6 +5,7 @@
 #if defined(CONFIG_LGE_DUAL_SCREEN)
 #include <linux/extcon.h>
 #define EXT_DD_MAX_COUNT 3
+void dd_set_skip_uevent(int input);
 #endif
 
 struct lge_dp_display {

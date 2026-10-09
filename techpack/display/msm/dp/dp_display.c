@@ -1628,7 +1628,8 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 			!!dp_display_state_is(DP_STATE_CONNECTED));
 
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	if (dp->ctrl->lt_failure) {
+	/* HPD low must reach disconnect_sync to clear a failed training attempt. */
+	if (dp->ctrl->lt_failure && dp->hpd->hpd_high) {
 		pr_err("lt_failure host deninit\n");
 		dp_display_host_deinit(dp);
 		dp_display_state_add(DP_STATE_SRC_PWRDN);

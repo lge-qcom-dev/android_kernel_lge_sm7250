@@ -1089,7 +1089,9 @@ static ssize_t ds2_pd_store(struct device *dev,
 	struct ds3 *ds3 = dev_get_drvdata(dev);
 	int hpd_high, refresh_layer;
 
-	if (sscanf(buf, "%d%d", &hpd_high, &refresh_layer) <= 0) {
+	if (sscanf(buf, "%d%d", &hpd_high, &refresh_layer) != 2 ||
+	    (hpd_high != 0 && hpd_high != 1) ||
+	    (refresh_layer != 0 && refresh_layer != 1)) {
 		dev_err(ds3->dev, "%s: invalid agument: %s", __func__, buf);
 		return -EINVAL;
 	}
@@ -1106,6 +1108,10 @@ static ssize_t ds2_pd_store(struct device *dev,
 	if(hpd_high)
 		lge_sbu_switch_get(ds3->sbu_inst, LGE_SBU_SWITCH_FLAG_SBU_AUX);
 #endif
+
+	/* AOSP needs a real disconnect before the case panel is powered off. */
+	if (refresh_layer)
+		dd_set_skip_uevent(0);
 
 	ds3_dp_hpd(ds3, hpd_high);
 
